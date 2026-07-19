@@ -35,10 +35,12 @@ interface RecipeFormProps {
   /** Present when editing an existing recipe; absent when creating a new one. */
   existing?: Recipe;
   onCancel: () => void;
+  /** On create only: whether the new recipe stays in the "Vyzkoušet" inbox. Ignored when editing. */
+  untried?: boolean;
 }
 
 /** Full recipe form, used both for creating a new recipe and editing an existing one. */
-function RecipeForm({ existing, onCancel }: RecipeFormProps) {
+function RecipeForm({ existing, onCancel, untried = false }: RecipeFormProps) {
   const addRecipe = useDataStore((s) => s.addRecipe);
   const [values, setValues] = useState<FormValues>(() => (existing ? fromRecipe(existing) : emptyForm()));
   const [categoryMode, setCategoryMode] = useState<'known' | 'custom'>(() =>
@@ -76,7 +78,8 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
       return;
     }
     setErrors({});
-    const recipe = toRecipe(result.recipe, existing, new Date().toISOString());
+    const draft = existing ? result.recipe : { ...result.recipe, untried };
+    const recipe = toRecipe(draft, existing, new Date().toISOString());
     void addRecipe(recipe).then(() => navigate({ name: 'recipe', id: recipe.id }));
   }
 

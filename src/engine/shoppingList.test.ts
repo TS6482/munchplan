@@ -102,7 +102,7 @@ describe('buildShoppingList', () => {
     it('moves a pantry-matched item to home instead of buy', () => {
       const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'sůl' }] });
       const plan = planWith({ mon: 'a' });
-      const result = buildShoppingList({ recipes: [a], plan, pantry: ['Sůl'], sales: [], weekExtras: extras() });
+      const result = buildShoppingList({ recipes: [a], plan, pantry: [{ name: 'Sůl' }], sales: [], weekExtras: extras() });
       expect(result.buy).toEqual([]);
       expect(result.home).toHaveLength(1);
       expect(result.home[0].key).toBe('sul|');
@@ -122,7 +122,7 @@ describe('buildShoppingList', () => {
       const result = buildShoppingList({
         recipes: [a],
         plan,
-        pantry: ['sůl'],
+        pantry: [{ name: 'sůl' }],
         sales: [],
         weekExtras: extras({ homeOverrides: { 'sul|': 'toBuy' } }),
       });

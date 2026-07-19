@@ -121,7 +121,7 @@ export function buildShoppingList(input: BuildShoppingListInput): ShoppingList {
     };
 
     const override = weekExtras.homeOverrides[group.key];
-    const isPantryMatch = pantry.some((entry) => exactMatch(entry, group.label));
+    const isPantryMatch = pantry.some((entry) => exactMatch(entry.name, group.label));
     const goesHome = override === 'toHome' || (override !== 'toBuy' && isPantryMatch);
 
     (goesHome ? home : buy).push(item);

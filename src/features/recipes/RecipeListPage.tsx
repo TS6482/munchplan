@@ -4,6 +4,7 @@ import { routeHash } from '../../router/router';
 import type { Recipe } from '../../types';
 import { EFFORT_LABELS } from './recipeFormLogic';
 import QuickAddForm from './QuickAddForm';
+import RecipeForm from './RecipeForm';
 import styles from './RecipeListPage.module.css';
 
 function RecipeRow({ recipe }: { recipe: Recipe }) {
@@ -21,6 +22,7 @@ function RecipeRow({ recipe }: { recipe: Recipe }) {
 function RecipeListPage() {
   const recipes = useDataStore((s) => s.files.recipes.data);
   const [tab, setTab] = useState<'collection' | 'inbox'>('collection');
+  const [showNewForm, setShowNewForm] = useState(false);
 
   const collection = recipes
     .filter((r) => !r.untried)
@@ -62,6 +64,13 @@ function RecipeListPage() {
       ) : (
         <div className={styles.list}>
           <QuickAddForm />
+          {showNewForm ? (
+            <RecipeForm untried onCancel={() => setShowNewForm(false)} />
+          ) : (
+            <button type="button" className="btn btnSecondary btnBlock" onClick={() => setShowNewForm(true)}>
+              Vytvořit celý recept
+            </button>
+          )}
           {inbox.length === 0 ? (
             <p className={styles.empty}>Žádné recepty k vyzkoušení.</p>
           ) : (
