@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import styles from './App.module.css';
 import { routeHash, type Route } from './router/router';
 import { useRoute } from './router/useRoute';
@@ -7,6 +8,9 @@ import RecipeDetailPage from './features/recipes/RecipeDetailPage';
 import ShoppingPage from './features/shopping/ShoppingPage';
 import ZasobyPage from './features/zasoby/ZasobyPage';
 import SettingsPage from './features/settings/SettingsPage';
+import StatusBanner from './components/StatusBanner';
+import { useSessionStore } from './store/session';
+import { useDataStore } from './store/data';
 
 interface Tab {
   route: Route;
@@ -52,10 +56,29 @@ function renderPage(route: Route) {
 
 function App() {
   const route = useRoute();
+  const configured = useSessionStore((s) => s.configured);
+  const status = useDataStore((s) => s.status);
+  const loadAll = useDataStore((s) => s.loadAll);
+
+  // Load once on app start, using whatever session was already restored from
+  // localStorage — a settings-page save triggers its own loadAll separately.
+  useEffect(() => {
+    const session = useSessionStore.getState();
+    if (session.configured) {
+      void loadAll({ owner: session.owner, repo: session.repo, token: session.token });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const showSettingsGate = !configured || status === 'authError';
 
   return (
     <div className={styles.app}>
-      <main className={styles.content}>{renderPage(route)}</main>
+      <StatusBanner />
+      <main className={styles.content}>
+        {!configured && <p className={styles.gateHint}>Nejdřív připoj datový repozitář</p>}
+        {showSettingsGate ? <SettingsPage /> : renderPage(route)}
+      </main>
       <nav className={styles.tabBar}>
         {TABS.map((tab) => (
           <a
