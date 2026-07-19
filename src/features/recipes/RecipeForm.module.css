@@ -29,6 +29,16 @@
   resize: vertical;
 }
 
+.fieldRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.fieldRow .field {
+  flex: 1;
+  min-width: 0;
+}
+
 .customCategory {
   padding: var(--space-2);
   border: 1px solid var(--color-border);

@@ -108,31 +108,33 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
         />
       )}
 
-      <label className={styles.field}>
-        Náročnost
-        <select className="select" value={values.effort} onChange={(e) => setValues((v) => ({ ...v, effort: e.target.value as Effort }))}>
-          {EFFORTS.map((ef) => (
-            <option key={ef.value} value={ef.value}>
-              {ef.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className={styles.fieldRow}>
+        <label className={styles.field}>
+          Náročnost
+          <select className="select" value={values.effort} onChange={(e) => setValues((v) => ({ ...v, effort: e.target.value as Effort }))}>
+            {EFFORTS.map((ef) => (
+              <option key={ef.value} value={ef.value}>
+                {ef.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        Počet porcí
-        <select
-          className="select"
-          value={values.portionsStr}
-          onChange={(e) => setValues((v) => ({ ...v, portionsStr: e.target.value }))}
-        >
-          {PORTION_OPTIONS.map((n) => (
-            <option key={n} value={String(n)}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </label>
+        <label className={styles.field}>
+          Počet porcí
+          <select
+            className="select"
+            value={values.portionsStr}
+            onChange={(e) => setValues((v) => ({ ...v, portionsStr: e.target.value }))}
+          >
+            {PORTION_OPTIONS.map((n) => (
+              <option key={n} value={String(n)}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {errors.portions && <p className={styles.error}>{errors.portions}</p>}
 
       <label className={styles.field}>
