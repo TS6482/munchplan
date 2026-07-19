@@ -78,7 +78,7 @@ function App() {
         {!configured && <p className={styles.gateHint}>Nejdřív připoj datový repozitář</p>}
         {showSettingsGate ? <SettingsPage /> : renderPage(route)}
       </main>
-      <nav className={styles.tabBar}>
+      <nav className={`${styles.tabBar} glass`}>
         {TABS.map((tab) => (
           <a
             key={tab.label}

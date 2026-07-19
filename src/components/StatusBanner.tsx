@@ -12,7 +12,7 @@ function StatusBanner() {
   if (!banner.kind) return null;
 
   return (
-    <div className={`${styles.banner} ${styles[banner.kind]}`}>
+    <div className={`${styles.banner} glass ${styles[banner.kind]}`}>
       <span>{banner.message}</span>
       {banner.kind === 'authError' && (
         <a href="#/nastaveni" className={styles.link}>

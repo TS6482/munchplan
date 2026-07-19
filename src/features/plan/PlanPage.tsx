@@ -40,12 +40,12 @@ function PlanPage() {
     <div className={styles.page}>
       <h1>Plán</h1>
 
-      <div className={styles.segments}>
+      <div className="segmented">
         {choices.map((choice) => (
           <button
             key={choice.key}
             type="button"
-            className={choice.key === weekKey ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+            className={choice.key === weekKey ? 'segment segmentActive' : 'segment'}
             onClick={() => setWeekKey(choice.key)}
           >
             {choice.label}

@@ -36,17 +36,17 @@ function RecipeListPage() {
         <h1>Recepty</h1>
       </div>
 
-      <div className={styles.segments}>
+      <div className="segmented">
         <button
           type="button"
-          className={tab === 'collection' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+          className={tab === 'collection' ? 'segment segmentActive' : 'segment'}
           onClick={() => setTab('collection')}
         >
           Sbírka
         </button>
         <button
           type="button"
-          className={tab === 'inbox' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+          className={tab === 'inbox' ? 'segment segmentActive' : 'segment'}
           onClick={() => setTab('inbox')}
         >
           Vyzkoušet

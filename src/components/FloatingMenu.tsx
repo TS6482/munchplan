@@ -20,7 +20,7 @@ function FloatingMenu() {
       <button
         type="button"
         aria-label="Další možnosti"
-        className={styles.button}
+        className={`${styles.button} glass`}
         onClick={() => setOpen((v) => !v)}
       >
         ⋯
@@ -28,7 +28,7 @@ function FloatingMenu() {
       {open && (
         <>
           <button type="button" className={styles.backdrop} aria-label="Zavřít nabídku" onClick={() => setOpen(false)} />
-          <div className={styles.panel}>
+          <div className={`${styles.panel} glass`}>
             {items.map((item) => (
               <button key={item.label} type="button" className={styles.item} onClick={() => select(item.route)}>
                 {item.label}

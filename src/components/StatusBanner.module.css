@@ -9,25 +9,24 @@
   color: var(--color-text);
 }
 
+/*
+ * Semantic tint overlays on top of the shared glass blur (see global.css
+ * .glass). loading/offline stay neutral — just the glass surface tint;
+ * authError/error and saveError layer a translucent danger/warning wash.
+ * Text stays var(--color-text) (adaptive light/dark) rather than a fixed
+ * white/dark, since the tint is translucent, not an opaque fill.
+ */
 .loading {
-  background: var(--color-surface);
   color: var(--color-text-secondary);
 }
 
-.offline {
-  background: var(--color-warning);
-  color: var(--color-text);
+.banner.authError,
+.banner.error {
+  background: color-mix(in srgb, var(--color-danger) 25%, transparent);
 }
 
-.authError,
-.error {
-  background: var(--color-danger);
-  color: #fff;
-}
-
-.saveError {
-  background: var(--color-warning);
-  color: var(--color-text);
+.banner.saveError {
+  background: color-mix(in srgb, var(--color-warning) 25%, transparent);
 }
 
 .link {

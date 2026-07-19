@@ -147,17 +147,17 @@ function ZasobyPage() {
     <div className={styles.page}>
       <h1>Zásoby</h1>
 
-      <div className={styles.segments}>
+      <div className="segmented">
         <button
           type="button"
-          className={tab === 'sales' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+          className={tab === 'sales' ? 'segment segmentActive' : 'segment'}
           onClick={() => setTab('sales')}
         >
           Slevy
         </button>
         <button
           type="button"
-          className={tab === 'pantry' ? `${styles.segment} ${styles.segmentActive}` : styles.segment}
+          className={tab === 'pantry' ? 'segment segmentActive' : 'segment'}
           onClick={() => setTab('pantry')}
         >
           Spíž

@@ -21,7 +21,7 @@ function RecipePicker({ input, onSelect, onCancel }: RecipePickerProps) {
 
   return (
     <div className={styles.overlay}>
-      <div className={styles.panel}>
+      <div className={`${styles.panel} glass`}>
         <h2>Vybrat recept</h2>
         <input
           className={styles.search}

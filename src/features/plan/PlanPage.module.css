@@ -8,31 +8,6 @@
   margin: 0;
 }
 
-.segments {
-  display: flex;
-  gap: var(--space-1);
-  background: var(--color-surface);
-  border-radius: var(--radius-md);
-  padding: var(--space-1);
-}
-
-.segment {
-  flex: 1;
-  padding: var(--space-2);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--color-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.segmentActive {
-  background: var(--color-accent);
-  color: #ffffff;
-}
-
 .summary {
   margin: 0;
   font-size: 13px;
