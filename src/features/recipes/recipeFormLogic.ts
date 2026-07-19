@@ -218,6 +218,36 @@ export function canBePlanned(recipe: Recipe): boolean {
   return recipe.ingredients.length > 0;
 }
 
+/** Standardized units of measure offered by the ingredient unit dropdown. */
+export const STANDARD_UNITS = [
+  'g',
+  'kg',
+  'ml',
+  'l',
+  'ks',
+  'lžíce',
+  'lžička',
+  'hrnek',
+  'špetka',
+  'balení',
+  'plátek',
+  'stroužek',
+  'konzerva',
+] as const;
+
+/**
+ * Options for the unit dropdown: empty ("bez jednotky") first, then the
+ * standard units, plus the edited recipe's current unit when it predates the
+ * dropdown (legacy free-text units must not be silently lost on edit).
+ */
+export function unitOptions(current: string): string[] {
+  const options: string[] = ['', ...STANDARD_UNITS];
+  if (current !== '' && !options.includes(current)) {
+    options.push(current);
+  }
+  return options;
+}
+
 /**
  * Only http/https URLs render as a link; anything else (plain text notes,
  * `javascript:` etc.) renders as plain text instead.

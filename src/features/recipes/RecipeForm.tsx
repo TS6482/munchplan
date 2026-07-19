@@ -5,6 +5,7 @@ import type { Effort, Recipe } from '../../types';
 import {
   fromRecipe,
   toRecipe,
+  unitOptions,
   validateFullForm,
   type FormValues,
   type FullFormErrors,
@@ -134,7 +135,17 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
           <div key={i} className={styles.ingredientRow}>
             <input placeholder="Název" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
             <input placeholder="Množství" value={row.amountStr} onChange={(e) => updateRow(i, { amountStr: e.target.value })} />
-            <input placeholder="Jednotka" value={row.unit} onChange={(e) => updateRow(i, { unit: e.target.value })} />
+            <select
+              aria-label="Jednotka"
+              value={row.unit}
+              onChange={(e) => updateRow(i, { unit: e.target.value })}
+            >
+              {unitOptions(row.unit).map((u) => (
+                <option key={u} value={u}>
+                  {u === '' ? '— bez jednotky' : u}
+                </option>
+              ))}
+            </select>
             <button type="button" onClick={() => removeRow(i)} aria-label="Odebrat ingredienci">
               ×
             </button>

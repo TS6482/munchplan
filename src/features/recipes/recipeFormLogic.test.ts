@@ -341,3 +341,27 @@ describe('fromRecipe', () => {
     });
   });
 });
+
+describe('unitOptions', () => {
+  it('starts with the empty option and contains standard czech units', async () => {
+    const { unitOptions, STANDARD_UNITS } = await import('./recipeFormLogic');
+    const options = unitOptions('');
+    expect(options[0]).toBe('');
+    expect(options).toEqual(['', ...STANDARD_UNITS]);
+    for (const u of ['g', 'kg', 'ml', 'l', 'ks', 'lžíce', 'lžička', 'špetka']) {
+      expect(options).toContain(u);
+    }
+  });
+
+  it('includes a legacy non-standard unit of the edited recipe so it is not lost', async () => {
+    const { unitOptions } = await import('./recipeFormLogic');
+    expect(unitOptions('hrst')).toEqual(expect.arrayContaining(['hrst', 'g', 'ks']));
+    expect(unitOptions('hrst')[0]).toBe('');
+  });
+
+  it('does not duplicate a current unit that is already standard', async () => {
+    const { unitOptions } = await import('./recipeFormLogic');
+    const options = unitOptions('g');
+    expect(options.filter((u) => u === 'g')).toHaveLength(1);
+  });
+});
