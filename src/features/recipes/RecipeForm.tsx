@@ -4,6 +4,7 @@ import { navigate } from '../../router/router';
 import type { Effort, Recipe } from '../../types';
 import {
   fromRecipe,
+  PORTION_OPTIONS,
   toRecipe,
   unitOptions,
   validateFullForm,
@@ -27,7 +28,7 @@ function emptyRow(): IngredientFormRow {
 }
 
 function emptyForm(): FormValues {
-  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', portionsStr: '', ingredients: [emptyRow()] };
+  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', portionsStr: '2', ingredients: [emptyRow()] };
 }
 
 interface RecipeFormProps {
@@ -89,7 +90,7 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
 
       <label className={styles.field}>
         Kategorie
-        <select value={categoryMode === 'known' ? values.category : CUSTOM_CATEGORY} onChange={(e) => handleCategorySelect(e.target.value)}>
+        <select className="select" value={categoryMode === 'known' ? values.category : CUSTOM_CATEGORY} onChange={(e) => handleCategorySelect(e.target.value)}>
           {KNOWN_CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -109,7 +110,7 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
 
       <label className={styles.field}>
         Náročnost
-        <select value={values.effort} onChange={(e) => setValues((v) => ({ ...v, effort: e.target.value as Effort }))}>
+        <select className="select" value={values.effort} onChange={(e) => setValues((v) => ({ ...v, effort: e.target.value as Effort }))}>
           {EFFORTS.map((ef) => (
             <option key={ef.value} value={ef.value}>
               {ef.label}
@@ -120,12 +121,17 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
 
       <label className={styles.field}>
         Počet porcí
-        <input
-          inputMode="numeric"
-          placeholder="např. 4"
+        <select
+          className="select"
           value={values.portionsStr}
           onChange={(e) => setValues((v) => ({ ...v, portionsStr: e.target.value }))}
-        />
+        >
+          {PORTION_OPTIONS.map((n) => (
+            <option key={n} value={String(n)}>
+              {n}
+            </option>
+          ))}
+        </select>
       </label>
       {errors.portions && <p className={styles.error}>{errors.portions}</p>}
 
@@ -147,6 +153,7 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
             <input placeholder="Název" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
             <input placeholder="Množství" value={row.amountStr} onChange={(e) => updateRow(i, { amountStr: e.target.value })} />
             <select
+              className="select"
               aria-label="Jednotka"
               value={row.unit}
               onChange={(e) => updateRow(i, { unit: e.target.value })}

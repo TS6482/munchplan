@@ -78,16 +78,19 @@ export function formatAmount(n: number): string {
   return rounded.toString().replace('.', ',');
 }
 
+/** Portion counts offered by the dropdown. */
+export const PORTION_OPTIONS = Array.from({ length: 10 }, (_, i) => i + 1);
+
 /**
- * `''` → no portion count given; a positive whole number → that number;
- * anything else (zero, negative, decimal, text) → `'invalid'`.
+ * `''` → no portion count given; a whole number 1–10 → that number;
+ * anything else (zero, negative, decimal, text, >10) → `'invalid'`.
  */
 export function parsePortions(raw: string): number | undefined | 'invalid' {
   const trimmed = raw.trim();
   if (trimmed === '') return undefined;
   if (!/^\d+$/.test(trimmed)) return 'invalid';
   const n = Number(trimmed);
-  if (n < 1) return 'invalid';
+  if (n < 1 || n > 10) return 'invalid';
   return n;
 }
 
@@ -107,7 +110,8 @@ export function validateFullForm(values: FormValues): FullFormResult {
   if (!name) errors.name = 'Vyplňte název receptu';
 
   const portions = parsePortions(values.portionsStr);
-  if (portions === 'invalid') errors.portions = 'Počet porcí musí být celé kladné číslo';
+  if (portions === 'invalid') errors.portions = 'Počet porcí musí být celé číslo od 1 do 10';
+  else if (portions === undefined) errors.portions = 'Vyberte počet porcí';
 
   const ingredients: Ingredient[] = [];
   const ingredientErrors: Record<number, string> = {};
@@ -146,7 +150,7 @@ export function validateFullForm(values: FormValues): FullFormResult {
       effort: values.effort,
       source: values.source.trim() || undefined,
       notes: values.notes.trim() || undefined,
-      portions: portions === 'invalid' ? undefined : portions,
+      portions: typeof portions === 'number' ? portions : undefined,
       ingredients,
       untried: false,
     },
@@ -223,7 +227,7 @@ export function fromRecipe(recipe: Recipe): FormValues {
     effort: recipe.effort,
     source: recipe.source ?? '',
     notes: recipe.notes ?? '',
-    portionsStr: recipe.portions !== undefined ? String(recipe.portions) : '',
+    portionsStr: recipe.portions !== undefined ? String(recipe.portions) : '2',
     ingredients: recipe.ingredients.map((ing) => ({
       name: ing.name,
       amountStr: ing.amount !== undefined ? formatAmount(ing.amount) : '',
