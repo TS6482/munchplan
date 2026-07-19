@@ -4,7 +4,6 @@ import { routeHash } from '../../router/router';
 import type { Recipe } from '../../types';
 import { EFFORT_LABELS } from './recipeFormLogic';
 import QuickAddForm from './QuickAddForm';
-import RecipeForm from './RecipeForm';
 import styles from './RecipeListPage.module.css';
 
 function RecipeRow({ recipe }: { recipe: Recipe }) {
@@ -22,16 +21,6 @@ function RecipeRow({ recipe }: { recipe: Recipe }) {
 function RecipeListPage() {
   const recipes = useDataStore((s) => s.files.recipes.data);
   const [tab, setTab] = useState<'collection' | 'inbox'>('collection');
-  const [showNewForm, setShowNewForm] = useState(false);
-
-  if (showNewForm) {
-    return (
-      <div className={styles.page}>
-        <h1>Nový recept</h1>
-        <RecipeForm onCancel={() => setShowNewForm(false)} />
-      </div>
-    );
-  }
 
   const collection = recipes
     .filter((r) => !r.untried)
@@ -43,9 +32,6 @@ function RecipeListPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <h1>Recepty</h1>
-        <button type="button" onClick={() => setShowNewForm(true)}>
-          Nový recept
-        </button>
       </div>
 
       <div className={styles.segments}>
