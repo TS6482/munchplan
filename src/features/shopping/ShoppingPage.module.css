@@ -1,0 +1,159 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.page h1 {
+  margin: 0;
+}
+
+.segments {
+  display: flex;
+  gap: var(--space-1);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+
+.segment {
+  flex: 1;
+  padding: var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 15px;
+}
+
+.sectionToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  text-align: left;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.rowLabel {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: 1;
+  cursor: pointer;
+}
+
+.rowText {
+  font-size: 15px;
+  color: var(--color-text);
+}
+
+.checked {
+  text-decoration: line-through;
+  color: var(--color-text-secondary);
+}
+
+.amount {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.saleBadge {
+  color: var(--color-warning);
+  font-size: 13px;
+}
+
+.fromRecipes {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  flex-basis: 100%;
+}
+
+.moveButton {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+}
+
+.form input {
+  flex: 1;
+  min-width: 120px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 15px;
+}
+
+.error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.empty a {
+  color: var(--color-accent);
+}

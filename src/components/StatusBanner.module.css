@@ -1,0 +1,37 @@
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.loading {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+.offline {
+  background: var(--color-warning);
+  color: var(--color-text);
+}
+
+.authError,
+.error {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.saveError {
+  background: var(--color-warning);
+  color: var(--color-text);
+}
+
+.link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+}
