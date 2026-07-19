@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { menuItemsFor } from './menuLogic';
 
 describe('menuItemsFor', () => {
-  it('plan route: only Nastavení', () => {
-    expect(menuItemsFor({ name: 'plan' })).toEqual([{ label: 'Nastavení', route: { name: 'settings' } }]);
+  it('plan route: Nový recept then Nastavení', () => {
+    expect(menuItemsFor({ name: 'plan' })).toEqual([
+      { label: 'Nový recept', route: { name: 'recipeNew' } },
+      { label: 'Nastavení', route: { name: 'settings' } },
+    ]);
   });
 
   it('recipes route: Nový recept then Nastavení', () => {
