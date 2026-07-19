@@ -25,6 +25,7 @@ function RepoSection() {
   const setConfig = useSessionStore((s) => s.setConfig);
   const clearConfig = useSessionStore((s) => s.clearConfig);
   const loadAll = useDataStore((s) => s.loadAll);
+  const resetData = useDataStore((s) => s.reset);
 
   const [ownerInput, setOwnerInput] = useState(owner);
   const [repoInput, setRepoInput] = useState(repo);
@@ -53,6 +54,11 @@ function RepoSection() {
     void loadAll(cfg);
   }
 
+  function handleDisconnect() {
+    clearConfig();
+    resetData();
+  }
+
   if (configured) {
     return (
       <section className={styles.section}>
@@ -61,7 +67,7 @@ function RepoSection() {
           {owner}/{repo}
         </p>
         <p>Token: {maskToken(token)}</p>
-        <button type="button" onClick={clearConfig}>
+        <button type="button" onClick={handleDisconnect}>
           Odpojit
         </button>
       </section>
@@ -275,13 +281,19 @@ function RotationSection() {
 }
 
 function SettingsPage() {
+  const status = useDataStore((s) => s.status);
+
   return (
     <div className={styles.page}>
       <h1>Nastavení</h1>
       <RepoSection />
-      <PersonsSection />
-      <DietRulesSection />
-      <RotationSection />
+      {status === 'ready' && (
+        <>
+          <PersonsSection />
+          <DietRulesSection />
+          <RotationSection />
+        </>
+      )}
     </div>
   );
 }

@@ -30,10 +30,24 @@ describe('bannerFor', () => {
     });
   });
 
-  it('shows save error banner with the underlying message', () => {
-    expect(bannerFor({ status: 'ready', offline: false, saveError: 'Conflict' })).toEqual({
+  it('shows a conflict save error banner', () => {
+    expect(bannerFor({ status: 'ready', offline: false, saveError: 'conflict' })).toEqual({
       kind: 'saveError',
-      message: 'Uložení selhalo: Conflict',
+      message: 'Uložení selhalo kvůli souběžné změně — zkus to znovu',
+    });
+  });
+
+  it('shows a network save error banner', () => {
+    expect(bannerFor({ status: 'ready', offline: false, saveError: 'network' })).toEqual({
+      kind: 'saveError',
+      message: 'Uložení selhalo — zkontroluj připojení',
+    });
+  });
+
+  it('shows an unknown save error banner', () => {
+    expect(bannerFor({ status: 'ready', offline: false, saveError: 'unknown' })).toEqual({
+      kind: 'saveError',
+      message: 'Uložení se nezdařilo',
     });
   });
 
@@ -46,30 +60,30 @@ describe('bannerFor', () => {
   });
 
   it('prioritizes authError over everything else', () => {
-    expect(bannerFor({ status: 'authError', offline: true, saveError: 'x' })).toEqual({
+    expect(bannerFor({ status: 'authError', offline: true, saveError: 'network' })).toEqual({
       kind: 'authError',
       message: 'Token vypršel nebo nemá přístup k datovému repozitáři',
     });
   });
 
   it('prioritizes error over loading, saveError, and offline', () => {
-    expect(bannerFor({ status: 'error', offline: true, saveError: 'x' })).toEqual({
+    expect(bannerFor({ status: 'error', offline: true, saveError: 'network' })).toEqual({
       kind: 'error',
       message: 'Data se nepodařilo načíst',
     });
   });
 
   it('prioritizes loading over saveError and offline', () => {
-    expect(bannerFor({ status: 'loading', offline: true, saveError: 'x' })).toEqual({
+    expect(bannerFor({ status: 'loading', offline: true, saveError: 'network' })).toEqual({
       kind: 'loading',
       message: 'Načítám…',
     });
   });
 
   it('prioritizes saveError over offline', () => {
-    expect(bannerFor({ status: 'ready', offline: true, saveError: 'x' })).toEqual({
+    expect(bannerFor({ status: 'ready', offline: true, saveError: 'network' })).toEqual({
       kind: 'saveError',
-      message: 'Uložení selhalo: x',
+      message: 'Uložení selhalo — zkontroluj připojení',
     });
   });
 });

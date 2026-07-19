@@ -180,22 +180,16 @@ export function pickerEntries(input: RankSuggestionsInput): PickerEntry[] {
 // Quota summary line
 // ---------------------------------------------------------------------------
 
-/** Categories of recipes assigned to any day of `weekKey` (unknown ids skipped). */
-export function plannedCategoriesForWeek(weekKey: WeekKey, plans: Plans, recipes: Recipe[]): string[] {
-  const plan = plans[weekKey];
-  if (!plan) return [];
-  const byId = new Map(recipes.map((r) => [r.id, r]));
-  return Object.values(plan.days)
-    .filter((id): id is string => id != null)
-    .map((id) => byId.get(id))
-    .filter((r): r is Recipe => r != null)
-    .map((r) => r.category);
+/** One rule's status as 'maso 2/max 2' / 'ryba 0/min 1' / 'zelenina 1 (min 1, max 3)'. */
+function formatQuotaStatus(status: { category: string; count: number; min?: number; max?: number }): string {
+  const { category, count, min, max } = status;
+  if (min !== undefined && max !== undefined) return `${category} ${count} (min ${min}, max ${max})`;
+  if (min !== undefined) return `${category} ${count}/min ${min}`;
+  return `${category} ${count}/max ${max}`;
 }
 
-/** 'maso 2/2 · ryba 0/1' style summary; null when there are no diet rules. */
+/** 'maso 2/max 2 · ryba 0/min 1' style summary; null when there are no diet rules. */
 export function quotaSummaryLine(rules: DietRule[], plannedCategories: string[]): string | null {
   if (rules.length === 0) return null;
-  return evaluateQuotas(plannedCategories, rules)
-    .map((status) => `${status.category} ${status.count}/${status.max ?? status.min}`)
-    .join(' · ');
+  return evaluateQuotas(plannedCategories, rules).map(formatQuotaStatus).join(' · ');
 }

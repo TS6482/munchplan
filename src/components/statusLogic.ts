@@ -11,7 +11,7 @@ export type BannerKind = 'loading' | 'offline' | 'authError' | 'error' | 'saveEr
 export interface BannerInput {
   status: LoadStatus;
   offline: boolean;
-  saveError: string | null;
+  saveError: 'conflict' | 'network' | 'unknown' | null;
 }
 
 export interface BannerOutput {
@@ -30,8 +30,14 @@ export function bannerFor({ status, offline, saveError }: BannerInput): BannerOu
   if (status === 'loading') {
     return { kind: 'loading', message: 'Načítám…' };
   }
-  if (saveError) {
-    return { kind: 'saveError', message: `Uložení selhalo: ${saveError}` };
+  if (saveError === 'conflict') {
+    return { kind: 'saveError', message: 'Uložení selhalo kvůli souběžné změně — zkus to znovu' };
+  }
+  if (saveError === 'network') {
+    return { kind: 'saveError', message: 'Uložení selhalo — zkontroluj připojení' };
+  }
+  if (saveError === 'unknown') {
+    return { kind: 'saveError', message: 'Uložení se nezdařilo' };
   }
   if (offline) {
     return { kind: 'offline', message: 'Offline — zobrazuji poslední načtená data' };

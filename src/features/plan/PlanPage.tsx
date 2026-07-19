@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react';
 import { useDataStore } from '../../store/data';
 import { routeHash } from '../../router/router';
 import type { IsoDay } from '../../types';
-import type { RankSuggestionsInput } from '../../engine/suggest';
-import { dayRows, getSuggestions, plannedCategoriesForWeek, quotaSummaryLine, weekChoices } from './planLogic';
+import { plannedCategories, type RankSuggestionsInput } from '../../engine/suggest';
+import { dayRows, getSuggestions, quotaSummaryLine, weekChoices } from './planLogic';
 import SuggestionsPanel from './SuggestionsPanel';
 import RecipePicker from './RecipePicker';
 import styles from './PlanPage.module.css';
@@ -21,8 +21,8 @@ function PlanPage() {
   const [pickerDay, setPickerDay] = useState<IsoDay | null>(null);
 
   const rows = dayRows(weekKey, plans, recipes);
-  const plannedCategories = plannedCategoriesForWeek(weekKey, plans, recipes);
-  const summary = quotaSummaryLine(settings.dietRules, plannedCategories);
+  const categoriesPlanned = plannedCategories(recipes, plans, weekKey);
+  const summary = quotaSummaryLine(settings.dietRules, categoriesPlanned);
 
   const suggestionsInput: RankSuggestionsInput = { recipes, plans, sales, settings, targetWeek: weekKey };
   const suggestions = getSuggestions(suggestionsInput);

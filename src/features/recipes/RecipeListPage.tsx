@@ -1,16 +1,11 @@
 import { useState } from 'react';
 import { useDataStore } from '../../store/data';
 import { routeHash } from '../../router/router';
-import type { Effort, Recipe } from '../../types';
+import type { Recipe } from '../../types';
+import { EFFORT_LABELS } from './recipeFormLogic';
 import QuickAddForm from './QuickAddForm';
 import RecipeForm from './RecipeForm';
 import styles from './RecipeListPage.module.css';
-
-const EFFORT_LABELS: Record<Effort, string> = {
-  quick: 'rychlé',
-  normal: 'normální',
-  hard: 'náročné',
-};
 
 function RecipeRow({ recipe }: { recipe: Recipe }) {
   return (

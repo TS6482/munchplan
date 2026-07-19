@@ -1,16 +1,10 @@
 import { useState } from 'react';
 import { useDataStore } from '../../store/data';
 import { navigate } from '../../router/router';
-import type { Effort, Ingredient, Recipe } from '../../types';
-import { canBePlanned, formatAmount, promoteRecipe, sourceHref } from './recipeFormLogic';
+import type { Ingredient, Recipe } from '../../types';
+import { EFFORT_LABELS, canBePlanned, formatAmount, promoteRecipe, sourceHref } from './recipeFormLogic';
 import RecipeForm from './RecipeForm';
 import styles from './RecipeDetailPage.module.css';
-
-const EFFORT_LABELS: Record<Effort, string> = {
-  quick: 'rychlé',
-  normal: 'normální',
-  hard: 'náročné',
-};
 
 function ingredientLine(ing: Ingredient): string {
   const parts: string[] = [];

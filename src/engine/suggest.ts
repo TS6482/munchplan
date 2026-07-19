@@ -27,7 +27,7 @@ export type Warning =
   | { kind: 'rotation'; weeksSinceCooked: number };
 
 /** Categories of recipes currently assigned to any day of `targetWeek`. Unknown recipeIds are skipped. */
-function plannedCategories(recipes: Recipe[], plans: Plans, targetWeek: WeekKey): RecipeCategory[] {
+export function plannedCategories(recipes: Recipe[], plans: Plans, targetWeek: WeekKey): RecipeCategory[] {
   const plan = plans[targetWeek];
   if (!plan) return [];
   const byId = new Map(recipes.map((r) => [r.id, r]));

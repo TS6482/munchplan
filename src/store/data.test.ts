@@ -198,6 +198,16 @@ describe('loadAll', () => {
 
     expect(useDataStore.getState().status).toBe('error');
   });
+
+  it('seed-write AuthError (pantry 404, saveWithRetry rejects with AuthError) sets status authError', async () => {
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockResolvedValue(null);
+    saveWithRetryMock.mockRejectedValue(new AuthError('token expired'));
+
+    await useDataStore.getState().loadAll(cfg);
+
+    expect(useDataStore.getState().status).toBe('authError');
+  });
 });
 
 describe('mutate', () => {
@@ -240,7 +250,7 @@ describe('mutate', () => {
     expect(useDataStore.getState().files.recipes).toEqual({ data: mergedResult, sha: 'r-sha-merged' });
   });
 
-  it('double-conflict: ConflictError rolls back to the pre-op snapshot and sets saveError', async () => {
+  it('double-conflict: ConflictError rolls back to the pre-op snapshot and sets saveError to "conflict"', async () => {
     seedRecipesFile();
     const before = useDataStore.getState().files.recipes;
     saveWithRetryMock.mockRejectedValue(new ConflictError('still conflicting'));
@@ -249,10 +259,10 @@ describe('mutate', () => {
 
     const state = useDataStore.getState();
     expect(state.files.recipes).toEqual(before);
-    expect(state.saveError).toBeTruthy();
+    expect(state.saveError).toBe('conflict');
   });
 
-  it('NetworkError rolls back and sets saveError', async () => {
+  it('NetworkError rolls back and sets saveError to "network"', async () => {
     seedRecipesFile();
     const before = useDataStore.getState().files.recipes;
     saveWithRetryMock.mockRejectedValue(new NetworkError('offline'));
@@ -261,7 +271,19 @@ describe('mutate', () => {
 
     const state = useDataStore.getState();
     expect(state.files.recipes).toEqual(before);
-    expect(state.saveError).toBeTruthy();
+    expect(state.saveError).toBe('network');
+  });
+
+  it('an unrecognized error rolls back and sets saveError to "unknown"', async () => {
+    seedRecipesFile();
+    const before = useDataStore.getState().files.recipes;
+    saveWithRetryMock.mockRejectedValue(new Error('boom'));
+
+    await useDataStore.getState().mutate('recipes', upsertRecipe(makeRecipe()));
+
+    const state = useDataStore.getState();
+    expect(state.files.recipes).toEqual(before);
+    expect(state.saveError).toBe('unknown');
   });
 
   it('AuthError rolls back and sets status authError', async () => {
@@ -279,6 +301,52 @@ describe('mutate', () => {
   it('mutate without a configured cfg is a no-op (no fetches)', async () => {
     await useDataStore.getState().mutate('recipes', upsertRecipe(makeRecipe()));
     expect(saveWithRetryMock).not.toHaveBeenCalled();
+  });
+
+  it('serializes two rapid mutations to the same file: the second save reads the first save\'s resulting sha/data', async () => {
+    useDataStore.setState({
+      cfg,
+      files: { ...useDataStore.getState().files, extras: { data: { weeks: {} }, sha: 'e-sha-1' } },
+    });
+
+    let resolveFirst!: (value: { data: unknown; sha: string }) => void;
+    const firstSave = new Promise<{ data: unknown; sha: string }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let resolveSecond!: (value: { data: unknown; sha: string }) => void;
+    const secondSave = new Promise<{ data: unknown; sha: string }>((resolve) => {
+      resolveSecond = resolve;
+    });
+    saveWithRetryMock.mockImplementationOnce(() => firstSave);
+    saveWithRetryMock.mockImplementationOnce(() => secondSave);
+
+    const afterFirstSave = {
+      weeks: { '2026-W30': { checks: { 'mouka|g': true }, extraItems: [], homeOverrides: {} } },
+    };
+    const afterSecondSave = {
+      weeks: { '2026-W30': { checks: { 'mouka|g': true, 'cukr|g': true }, extraItems: [], homeOverrides: {} } },
+    };
+
+    const p1 = useDataStore.getState().setCheck('2026-W30', 'mouka|g', true);
+    const p2 = useDataStore.getState().setCheck('2026-W30', 'cukr|g', true);
+
+    // Let both mutate() calls enqueue before the first save resolves.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    resolveFirst({ data: afterFirstSave, sha: 'e-sha-2' });
+    await p1;
+
+    // The second save must have been invoked with a base derived from the
+    // FIRST save's result (fresh sha/data), proving it waited its turn.
+    expect(saveWithRetryMock).toHaveBeenCalledTimes(2);
+    const secondCallBase = saveWithRetryMock.mock.calls[1][4];
+    expect(secondCallBase).toEqual({ data: afterFirstSave, sha: 'e-sha-2' });
+
+    resolveSecond({ data: afterSecondSave, sha: 'e-sha-3' });
+    await p2;
+
+    expect(useDataStore.getState().files.extras.data).toEqual(afterSecondSave);
   });
 });
 
@@ -305,5 +373,27 @@ describe('convenience actions', () => {
     expect(useDataStore.getState().files.extras.data).toEqual(checkedExtras);
     const [, savedPath] = saveWithRetryMock.mock.calls[0];
     expect(savedPath).toBe('extras.json');
+  });
+});
+
+describe('reset', () => {
+  it('restores files/cfg/status/offline/saveError to their initial values', () => {
+    useDataStore.setState({
+      cfg,
+      status: 'ready',
+      offline: true,
+      saveError: 'network',
+      files: { ...useDataStore.getState().files, recipes: { data: [makeRecipe()], sha: 'r-sha' } },
+    });
+
+    useDataStore.getState().reset();
+
+    const state = useDataStore.getState();
+    const initial = useDataStore.getInitialState();
+    expect(state.files).toEqual(initial.files);
+    expect(state.cfg).toBeNull();
+    expect(state.status).toBe('idle');
+    expect(state.offline).toBe(false);
+    expect(state.saveError).toBeNull();
   });
 });

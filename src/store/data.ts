@@ -23,10 +23,18 @@
  * - Offline cache is a read fallback only (per plan.md): it hydrates
  *   `loadAll` when fetches fail, but `mutate` still fails visibly offline
  *   (no write queue).
+ * - `mutate` calls targeting the *same* `fileKey` are serialized through a
+ *   per-file promise chain (`queues`, inside the store closure): each call is
+ *   appended with `.then(doMutate)`, so it only runs once the previous queued
+ *   mutation for that file has fully settled (optimistic apply + save +
+ *   rollback-on-error, all done). This guarantees `doMutate` always reads the
+ *   *latest* `sha`/data via `get()` rather than racing another in-flight
+ *   mutation with a stale base. Mutations to different files are unaffected
+ *   and still run concurrently.
  */
 
 import { create } from 'zustand';
-import { AuthError, NetworkError, getFile, probeRepo, saveWithRetry, type GithubConfig } from '../api/github';
+import { AuthError, ConflictError, NetworkError, getFile, probeRepo, saveWithRetry, type GithubConfig } from '../api/github';
 import type { Extras, ExtraItem, IsoDay, ItemKey, Pantry, Recipe, SaleItem, Settings, WeekKey } from '../types';
 import * as ops from './ops';
 import type { FileDataMap, FileKey, FileOpMap } from './ops';
@@ -110,15 +118,18 @@ function defaultFiles(): DataFiles {
   };
 }
 
+export type SaveErrorKind = 'conflict' | 'network' | 'unknown' | null;
+
 export interface DataState {
   status: LoadStatus;
   offline: boolean;
-  saveError: string | null;
+  saveError: SaveErrorKind;
   cfg: GithubConfig | null;
   files: DataFiles;
 
   loadAll: (cfg: GithubConfig | null) => Promise<void>;
   mutate: <K extends FileKey>(fileKey: K, op: FileOpMap[K]) => Promise<void>;
+  reset: () => void;
 
   addRecipe: (recipe: Recipe) => Promise<void>;
   removeRecipe: (id: string) => Promise<void>;
@@ -217,36 +228,59 @@ export const useDataStore = create<DataState>()((set, get) => {
         );
         writeCache(FILES.pantry.path, saved.data);
         set((s) => ({ files: { ...s.files, pantry: { data: saved.data as Pantry, sha: saved.sha } } }));
-      } catch {
-        // Non-fatal: pantry stays seeded locally without a sha; the next
-        // mutation or load attempt will retry persisting it.
+      } catch (err) {
+        if (err instanceof AuthError) {
+          set({ status: 'authError' });
+        }
+        // Other errors are non-fatal: pantry stays seeded locally without a
+        // sha; the next mutation or load attempt will retry persisting it.
       }
     }
   }
 
+  // Per-file mutation queue: `mutate` for a given fileKey is chained onto the
+  // previous call's promise, so concurrent mutations to the same file never
+  // race each other's optimistic-apply/save round trip. `doMutate` re-reads
+  // `get()` only once its turn arrives, so it always builds on the sha/data
+  // the *previous* queued mutation actually landed (or rolled back to), never
+  // a stale snapshot from enqueue time. `doMutate` never rejects (all errors
+  // are caught inside it), so one failed mutation never poisons the chain for
+  // mutations queued after it.
+  const queues: Partial<Record<FileKey, Promise<void>>> = {};
+
   async function mutate<K extends FileKey>(fileKey: K, op: FileOpMap[K]): Promise<void> {
-    const state = get();
-    const cfg = state.cfg;
-    if (!cfg) return;
+    async function doMutate(): Promise<void> {
+      const state = get();
+      const cfg = state.cfg;
+      if (!cfg) return;
 
-    const entry = FILES[fileKey];
-    const prev = state.files[fileKey] as FileState<unknown>;
-    const optimistic = entry.apply(op, prev.data);
-    set((s) => ({ files: { ...s.files, [fileKey]: { data: optimistic, sha: prev.sha } }, saveError: null }));
+      const entry = FILES[fileKey];
+      const prev = state.files[fileKey] as FileState<unknown>;
+      const optimistic = entry.apply(op, prev.data);
+      set((s) => ({ files: { ...s.files, [fileKey]: { data: optimistic, sha: prev.sha } }, saveError: null }));
 
-    try {
-      const base = prev.sha !== undefined ? { data: prev.data, sha: prev.sha } : null;
-      const result = await saveWithRetry(cfg, entry.path, op, entry.apply, base, entry.emptyData);
-      set((s) => ({ files: { ...s.files, [fileKey]: { data: result.data, sha: result.sha } } }));
-      writeCache(entry.path, result.data);
-    } catch (err) {
-      set((s) => ({ files: { ...s.files, [fileKey]: prev } }));
-      if (err instanceof AuthError) {
-        set({ status: 'authError' });
-      } else {
-        set({ saveError: err instanceof Error ? err.message : 'Unknown error' });
+      try {
+        const base = prev.sha !== undefined ? { data: prev.data, sha: prev.sha } : null;
+        const result = await saveWithRetry(cfg, entry.path, op, entry.apply, base, entry.emptyData);
+        set((s) => ({ files: { ...s.files, [fileKey]: { data: result.data, sha: result.sha } } }));
+        writeCache(entry.path, result.data);
+      } catch (err) {
+        set((s) => ({ files: { ...s.files, [fileKey]: prev } }));
+        if (err instanceof AuthError) {
+          set({ status: 'authError' });
+        } else if (err instanceof ConflictError) {
+          set({ saveError: 'conflict' });
+        } else if (err instanceof NetworkError) {
+          set({ saveError: 'network' });
+        } else {
+          set({ saveError: 'unknown' });
+        }
       }
     }
+
+    const next = (queues[fileKey] ?? Promise.resolve()).then(doMutate);
+    queues[fileKey] = next;
+    return next;
   }
 
   return {
@@ -258,6 +292,7 @@ export const useDataStore = create<DataState>()((set, get) => {
 
     loadAll,
     mutate,
+    reset: () => set({ files: defaultFiles(), cfg: null, status: 'idle', offline: false, saveError: null }),
 
     addRecipe: (recipe) => mutate('recipes', ops.upsertRecipe(recipe)),
     removeRecipe: (id) => mutate('recipes', ops.deleteRecipe(id)),

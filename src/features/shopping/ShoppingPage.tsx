@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { useDataStore } from '../../store/data';
 import { routeHash } from '../../router/router';
 import type { ShoppingItem } from '../../engine/shoppingList';
-import { itemAmountText, newExtraItem, shoppingView, toggleHomeTarget, validateExtraName } from './shoppingLogic';
+import { itemAmountText, newExtraItem, shoppingView, toggleHomeTarget, validateExtraName, weekExtrasFor } from './shoppingLogic';
 import { weekChoices } from '../plan/planLogic';
 import styles from './ShoppingPage.module.css';
 
@@ -72,7 +72,7 @@ function ShoppingPage() {
   const [extraError, setExtraError] = useState<string | null>(null);
 
   const hasPlan = plans[weekKey] !== undefined;
-  const overrides = extras.weeks[weekKey]?.homeOverrides ?? {};
+  const overrides = weekExtrasFor(extras, weekKey).homeOverrides;
   const view = shoppingView({ recipes, plans, pantry, sales, extras, week: weekKey });
 
   function handleAddExtra(e: FormEvent) {
@@ -106,7 +106,8 @@ function ShoppingPage() {
 
       {!hasPlan && (
         <p className={styles.empty}>
-          Žádný plán pro tento týden. <a href={routeHash({ name: 'plan' })}>Naplánovat týden</a>
+          {weekKey === choices[0].key ? 'Žádný plán pro tento týden' : 'Žádný plán pro příští týden'}.{' '}
+          <a href={routeHash({ name: 'plan' })}>Naplánovat týden</a>
         </p>
       )}
 

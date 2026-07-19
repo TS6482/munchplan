@@ -8,10 +8,13 @@
 import type { ExtraItem, Extras, ItemKey, Pantry, Plans, Recipe, SaleItem, WeekExtras, WeekKey } from '../../types';
 import { buildShoppingList, type ShoppingItem, type ShoppingList } from '../../engine/shoppingList';
 import { formatAmount } from '../recipes/recipeFormLogic';
+import { EMPTY_WEEK_EXTRAS } from '../../store/ops';
 
-const EMPTY_WEEK_EXTRAS: WeekExtras = { checks: {}, extraItems: [], homeOverrides: {} };
-
-/** The stored WeekExtras for `week`, or an empty one — weeks are never leaked into each other. */
+/**
+ * The stored WeekExtras for `week`, or the shared `EMPTY_WEEK_EXTRAS`
+ * constant — read-only here (buildShoppingList/consumers must not mutate the
+ * returned object when a week has no stored extras yet).
+ */
 export function weekExtrasFor(extras: Extras, week: WeekKey): WeekExtras {
   return extras.weeks[week] ?? EMPTY_WEEK_EXTRAS;
 }

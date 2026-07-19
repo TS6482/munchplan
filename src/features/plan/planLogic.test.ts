@@ -208,11 +208,11 @@ describe('quotaSummaryLine', () => {
     expect(quotaSummaryLine([], [])).toBeNull();
   });
 
-  it('formats a max rule as count/max', () => {
-    expect(quotaSummaryLine([{ category: 'maso', max: 2 }], ['maso', 'maso'])).toBe('maso 2/2');
+  it('formats a max-only rule as count/max', () => {
+    expect(quotaSummaryLine([{ category: 'maso', max: 2 }], ['maso', 'maso'])).toBe('maso 2/max 2');
   });
 
-  it('formats a min rule as count/min and joins multiple rules', () => {
+  it('formats a min-only rule as count/min and joins multiple rules', () => {
     expect(
       quotaSummaryLine(
         [
@@ -221,7 +221,13 @@ describe('quotaSummaryLine', () => {
         ],
         ['maso', 'maso'],
       ),
-    ).toBe('maso 2/2 · ryba 0/1');
+    ).toBe('maso 2/max 2 · ryba 0/min 1');
+  });
+
+  it('formats a rule with both min and max', () => {
+    expect(quotaSummaryLine([{ category: 'zelenina', min: 1, max: 3 }], ['zelenina'])).toBe(
+      'zelenina 1 (min 1, max 3)',
+    );
   });
 });
 

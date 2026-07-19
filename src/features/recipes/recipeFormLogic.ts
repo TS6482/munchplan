@@ -26,6 +26,12 @@ export interface FormValues {
 }
 
 /** A validated recipe payload, still missing the persistence fields id/createdAt/updatedAt. */
+export const EFFORT_LABELS: Record<Effort, string> = {
+  quick: 'rychlé',
+  normal: 'normální',
+  hard: 'náročné',
+};
+
 export interface RecipeDraft {
   name: string;
   category: RecipeCategory;

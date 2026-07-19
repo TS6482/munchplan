@@ -262,7 +262,7 @@ export function setHomeOverride(week: WeekKey, itemKey: ItemKey, override: 'toHo
   return { type: 'setHomeOverride', week, itemKey, override };
 }
 
-const EMPTY_WEEK_EXTRAS: WeekExtras = { checks: {}, extraItems: [], homeOverrides: {} };
+export const EMPTY_WEEK_EXTRAS: WeekExtras = { checks: {}, extraItems: [], homeOverrides: {} };
 
 function withWeek(data: Extras, week: WeekKey, weekExtras: WeekExtras): Extras {
   return { weeks: { ...data.weeks, [week]: weekExtras } };
