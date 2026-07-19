@@ -141,14 +141,16 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
             {errors.ingredientErrors?.[i] && <p className={styles.error}>{errors.ingredientErrors[i]}</p>}
           </div>
         ))}
-        <button type="button" onClick={addRow}>
+        <button type="button" className="btn btnSecondary btnBlock" onClick={addRow}>
           Přidat ingredienci
         </button>
       </div>
 
       <div className={styles.actions}>
-        <button type="submit">Uložit</button>
-        <button type="button" onClick={onCancel}>
+        <button type="submit" className="btn btnPrimary">
+          Uložit
+        </button>
+        <button type="button" className="btn btnNeutral" onClick={onCancel}>
           Zrušit
         </button>
       </div>

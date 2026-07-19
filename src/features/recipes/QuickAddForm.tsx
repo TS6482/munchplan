@@ -28,7 +28,9 @@ function QuickAddForm() {
     <form className={styles.form} onSubmit={handleSubmit}>
       <input placeholder="Název receptu" value={name} onChange={(e) => setName(e.target.value)} />
       <input placeholder="Zdroj (nepovinné)" value={source} onChange={(e) => setSource(e.target.value)} />
-      <button type="submit">Přidat</button>
+      <button type="submit" className="btn btnPrimary">
+        Přidat
+      </button>
       {error && <p className={styles.error}>{error}</p>}
     </form>
   );

@@ -20,3 +20,46 @@ body {
 #root {
   min-height: 100vh;
 }
+
+.btn {
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: 12px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:active {
+  opacity: 0.7;
+}
+
+.btnPrimary {
+  background: var(--color-accent);
+  color: #ffffff;
+}
+
+.btnSecondary {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.btnNeutral {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--color-text);
+}
+
+.btnDanger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+.btnBlock {
+  width: 100%;
+}

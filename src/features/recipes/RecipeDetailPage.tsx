@@ -100,14 +100,14 @@ function RecipeDetailPage({ id }: { id: string }) {
 
       <div className={styles.actions}>
         {recipe.untried && (
-          <button type="button" onClick={handlePromote}>
+          <button type="button" className="btn btnPrimary" onClick={handlePromote}>
             Vyzkoušeno ✓
           </button>
         )}
-        <button type="button" onClick={() => setEditing(true)}>
+        <button type="button" className="btn btnSecondary" onClick={() => setEditing(true)}>
           Upravit
         </button>
-        <button type="button" className={styles.danger} onClick={handleDelete}>
+        <button type="button" className="btn btnDanger" onClick={handleDelete}>
           Smazat
         </button>
       </div>

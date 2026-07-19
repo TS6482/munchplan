@@ -29,9 +29,10 @@
 .field input {
   font-size: 15px;
   color: var(--color-text);
+  min-height: 44px;
   padding: var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   background: var(--color-bg);
 }
 
@@ -104,9 +105,10 @@
 
 .chipForm input {
   flex: 1;
+  min-height: 44px;
   padding: var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   background: var(--color-bg);
 }
 
@@ -133,9 +135,10 @@
 }
 
 .form input {
+  min-height: 44px;
   padding: var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   background: var(--color-bg);
   flex: 1;
   min-width: 60px;

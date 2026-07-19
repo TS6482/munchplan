@@ -55,7 +55,7 @@ function RecipePicker({ input, onSelect, onCancel }: RecipePickerProps) {
           </ul>
         )}
 
-        <button type="button" onClick={onCancel}>
+        <button type="button" className="btn btnNeutral btnBlock" onClick={onCancel}>
           Zrušit
         </button>
       </div>

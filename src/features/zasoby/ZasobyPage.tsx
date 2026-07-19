@@ -38,13 +38,15 @@ function SalesSegment() {
       <form className={styles.form} onSubmit={handleSubmit}>
         <input placeholder="Název ingredience" value={name} onChange={(e) => setName(e.target.value)} />
         <input placeholder="např. Lidl 89 Kč" value={note} onChange={(e) => setNote(e.target.value)} />
-        <button type="submit">Přidat</button>
+        <button type="submit" className="btn btnPrimary">
+          Přidat
+        </button>
         {error && <p className={styles.error}>{error}</p>}
       </form>
 
       <div className={styles.listHeader}>
         <span>{list.length} položek</span>
-        <button type="button" onClick={handleClear}>
+        <button type="button" className="btn btnDanger" onClick={handleClear}>
           Nový týden
         </button>
       </div>
@@ -96,7 +98,9 @@ function PantrySegment() {
     <div className={styles.segmentContent}>
       <form className={styles.form} onSubmit={handleSubmit}>
         <input placeholder="Název ingredience" value={name} onChange={(e) => setName(e.target.value)} />
-        <button type="submit">Přidat</button>
+        <button type="submit" className="btn btnPrimary">
+          Přidat
+        </button>
         {error && <p className={styles.error}>{error}</p>}
       </form>
 

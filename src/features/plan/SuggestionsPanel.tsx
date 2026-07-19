@@ -32,7 +32,7 @@ function SuggestionsPanel({ recipesEmpty, suggestions, onAssign }: SuggestionsPa
                   {view.saleText && <span className={styles.sale}>{view.saleText}</span>}
                   <span className={styles.fresh}>{view.freshText}</span>
                 </div>
-                <button type="button" onClick={() => onAssign(view.id)}>
+                <button type="button" className="btn btnSecondary" onClick={() => onAssign(view.id)}>
                   Přidat
                 </button>
               </li>
