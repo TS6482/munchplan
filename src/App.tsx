@@ -9,6 +9,8 @@ import ShoppingPage from './features/shopping/ShoppingPage';
 import ZasobyPage from './features/zasoby/ZasobyPage';
 import SettingsPage from './features/settings/SettingsPage';
 import StatusBanner from './components/StatusBanner';
+import FloatingMenu from './components/FloatingMenu';
+import RecipeNewPage from './features/recipes/RecipeNewPage';
 import { useSessionStore } from './store/session';
 import { useDataStore } from './store/data';
 
@@ -29,12 +31,6 @@ const TABS: Tab[] = [
   },
   { route: { name: 'shopping' }, label: 'Nákup', icon: '🛒', isActive: (r) => r.name === 'shopping' },
   { route: { name: 'zasoby' }, label: 'Zásoby', icon: '🏷️', isActive: (r) => r.name === 'zasoby' },
-  {
-    route: { name: 'settings' },
-    label: 'Nastavení',
-    icon: '⚙️',
-    isActive: (r) => r.name === 'settings',
-  },
 ];
 
 function renderPage(route: Route) {
@@ -43,6 +39,8 @@ function renderPage(route: Route) {
       return <PlanPage />;
     case 'recipes':
       return <RecipeListPage />;
+    case 'recipeNew':
+      return <RecipeNewPage />;
     case 'recipe':
       return <RecipeDetailPage id={route.id} />;
     case 'shopping':
@@ -75,6 +73,7 @@ function App() {
   return (
     <div className={styles.app}>
       <StatusBanner />
+      {!showSettingsGate && <FloatingMenu />}
       <main className={styles.content}>
         {!configured && <p className={styles.gateHint}>Nejdřív připoj datový repozitář</p>}
         {showSettingsGate ? <SettingsPage /> : renderPage(route)}

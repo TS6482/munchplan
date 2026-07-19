@@ -17,8 +17,9 @@
  *   concurrently gained an item — "clear" was the later local intent.
  * - `addPantryItem`/`upsertSaleItem` dedupe by normalized name but preserve
  *   the *already-stored* display spelling when an entry already exists
- *   (only `upsertSaleItem`'s `note` field is replaced by the newer op's
- *   value, since editing the note is the whole point of upserting again).
+ *   (`upsertSaleItem`'s `note` field and `addPantryItem`'s `amount`/`unit`
+ *   fields are replaced by the newer op's values — undefined clears them —
+ *   since updating those fields is the whole point of upserting again).
  * - `upsertDietRule` is one-rule-per-category: re-applying it replaces any
  *   existing rule for that normalized category rather than duplicating it.
  */
@@ -30,6 +31,7 @@ import type {
   IsoDay,
   ItemKey,
   Pantry,
+  PantryItem,
   Person,
   Plans,
   Recipe,
@@ -97,12 +99,12 @@ export function applyPlansOp(op: PlansOp, data: Plans): Plans {
 // ---------------------------------------------------------------------------
 
 export type PantryOp =
-  | { type: 'addPantryItem'; name: string }
+  | { type: 'addPantryItem'; name: string; amount?: number; unit?: string }
   | { type: 'removePantryItem'; name: string }
   | { type: 'setPantry'; items: Pantry };
 
-export function addPantryItem(name: string): PantryOp {
-  return { type: 'addPantryItem', name };
+export function addPantryItem(name: string, amount?: number, unit?: string): PantryOp {
+  return { type: 'addPantryItem', name, amount, unit };
 }
 
 export function removePantryItem(name: string): PantryOp {
@@ -118,16 +120,47 @@ export function applyPantryOp(op: PantryOp, data: Pantry): Pantry {
   switch (op.type) {
     case 'addPantryItem': {
       const norm = normalizeName(op.name);
-      if (data.some((item) => normalizeName(item) === norm)) return data;
-      return [...data, op.name];
+      const idx = data.findIndex((item) => normalizeName(item.name) === norm);
+      // Newer op wins on amount/unit (an undefined value clears the field);
+      // the already-stored display spelling is kept on update.
+      const updated: PantryItem = { name: idx === -1 ? op.name : data[idx].name };
+      if (op.amount !== undefined) updated.amount = op.amount;
+      if (op.unit !== undefined) updated.unit = op.unit;
+      if (idx === -1) return [...data, updated];
+      return data.map((item, i) => (i === idx ? updated : item));
     }
     case 'removePantryItem': {
       const norm = normalizeName(op.name);
-      return data.filter((item) => normalizeName(item) !== norm);
+      return data.filter((item) => normalizeName(item.name) !== norm);
     }
     case 'setPantry':
       return [...op.items];
   }
+}
+
+/**
+ * Migrates raw (possibly legacy) pantry data into `PantryItem[]`: legacy
+ * string entries become `{ name }`, well-formed objects pass through
+ * unchanged, and anything else unparseable (not a string, missing/non-string
+ * `name`) is dropped. Non-array input yields an empty pantry.
+ */
+export function normalizePantry(data: unknown): PantryItem[] {
+  if (!Array.isArray(data)) return [];
+  const result: PantryItem[] = [];
+  for (const entry of data) {
+    if (typeof entry === 'string') {
+      result.push({ name: entry });
+      continue;
+    }
+    if (entry && typeof entry === 'object' && typeof (entry as { name?: unknown }).name === 'string') {
+      const { name, amount, unit } = entry as { name: string; amount?: unknown; unit?: unknown };
+      const item: PantryItem = { name };
+      if (typeof amount === 'number') item.amount = amount;
+      if (typeof unit === 'string') item.unit = unit;
+      result.push(item);
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------

@@ -30,6 +30,8 @@ export interface Recipe {
   effort: Effort;
   source?: string;
   notes?: string;
+  /** Number of servings the ingredient amounts are written for. */
+  portions?: number;
   untried: boolean;
   createdAt: string;
   updatedAt: string;
@@ -69,8 +71,15 @@ export interface SaleItem {
   note?: string;
 }
 
-/** Ingredient names the household currently has at home. */
-export type Pantry = string[];
+/** An ingredient the household currently has at home, with an optional known quantity. */
+export interface PantryItem {
+  name: string;
+  amount?: number;
+  unit?: string;
+}
+
+/** Ingredients the household currently has at home. */
+export type Pantry = PantryItem[];
 
 /**
  * Stable identity for a shopping-list line: `normalize(name) + "|" +

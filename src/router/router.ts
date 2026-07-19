@@ -1,6 +1,7 @@
 export type Route =
   | { name: 'plan' }
   | { name: 'recipes' }
+  | { name: 'recipeNew' }
   | { name: 'recipe'; id: string }
   | { name: 'shopping' }
   | { name: 'zasoby' }
@@ -23,7 +24,8 @@ export function parseRoute(hash: string): Route {
     case 'plan':
       return PLAN_ROUTE;
     case 'recepty':
-      return segments[1] ? { name: 'recipe', id: segments[1] } : { name: 'recipes' };
+      if (!segments[1]) return { name: 'recipes' };
+      return segments[1] === 'novy' ? { name: 'recipeNew' } : { name: 'recipe', id: segments[1] };
     case 'nakup':
       return { name: 'shopping' };
     case 'zasoby':
@@ -42,6 +44,8 @@ export function routeHash(route: Route): string {
       return '#/plan';
     case 'recipes':
       return '#/recepty';
+    case 'recipeNew':
+      return '#/recepty/novy';
     case 'recipe':
       return `#/recepty/${route.id}`;
     case 'shopping':

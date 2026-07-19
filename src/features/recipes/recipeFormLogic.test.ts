@@ -20,6 +20,7 @@ function emptyForm(overrides: Partial<FormValues> = {}): FormValues {
     effort: 'normal',
     source: '',
     notes: '',
+    portionsStr: '2',
     ingredients: [],
     ...overrides,
   };
@@ -135,6 +136,7 @@ describe('validateFullForm', () => {
           { name: 'maso', amount: 0.5, unit: 'kg' },
           { name: 'sůl' },
         ],
+        portions: 2,
         untried: false,
       });
     }
@@ -313,6 +315,7 @@ describe('fromRecipe', () => {
       effort: 'hard',
       source: 'https://example.com',
       notes: 'Vařit dlouho',
+      portionsStr: '2',
       ingredients: [
         { name: 'maso', amountStr: '0,5', unit: 'kg' },
         { name: 'sůl', amountStr: '', unit: '' },
@@ -337,7 +340,105 @@ describe('fromRecipe', () => {
       effort: 'quick',
       source: '',
       notes: '',
+      portionsStr: '2',
       ingredients: [],
     });
+  });
+});
+
+describe('unitOptions', () => {
+  it('starts with the empty option and contains standard czech units', async () => {
+    const { unitOptions, STANDARD_UNITS } = await import('./recipeFormLogic');
+    const options = unitOptions('');
+    expect(options[0]).toBe('');
+    expect(options).toEqual(['', ...STANDARD_UNITS]);
+    for (const u of ['g', 'kg', 'ml', 'l', 'ks', 'lžíce', 'lžička', 'špetka']) {
+      expect(options).toContain(u);
+    }
+  });
+
+  it('includes a legacy non-standard unit of the edited recipe so it is not lost', async () => {
+    const { unitOptions } = await import('./recipeFormLogic');
+    expect(unitOptions('hrst')).toEqual(expect.arrayContaining(['hrst', 'g', 'ks']));
+    expect(unitOptions('hrst')[0]).toBe('');
+  });
+
+  it('does not duplicate a current unit that is already standard', async () => {
+    const { unitOptions } = await import('./recipeFormLogic');
+    const options = unitOptions('g');
+    expect(options.filter((u) => u === 'g')).toHaveLength(1);
+  });
+});
+
+describe('portions', () => {
+  it('parsePortions: empty is undefined, whole numbers 1-10 accepted', async () => {
+    const { parsePortions } = await import('./recipeFormLogic');
+    expect(parsePortions('')).toBeUndefined();
+    expect(parsePortions('4')).toBe(4);
+    expect(parsePortions('1')).toBe(1);
+    expect(parsePortions('10')).toBe(10);
+  });
+
+  it('parsePortions: zero, negative, decimal, text, and >10 are invalid', async () => {
+    const { parsePortions } = await import('./recipeFormLogic');
+    expect(parsePortions('0')).toBe('invalid');
+    expect(parsePortions('-2')).toBe('invalid');
+    expect(parsePortions('2,5')).toBe('invalid');
+    expect(parsePortions('2.5')).toBe('invalid');
+    expect(parsePortions('abc')).toBe('invalid');
+    expect(parsePortions('11')).toBe('invalid');
+  });
+
+  it('PORTION_OPTIONS is 1 through 10', async () => {
+    const { PORTION_OPTIONS } = await import('./recipeFormLogic');
+    expect(PORTION_OPTIONS).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it('validateFullForm: invalid or missing portions produce a czech error', () => {
+    const base = { name: 'Guláš', ingredients: [{ name: 'maso', amountStr: '500', unit: 'g' }] };
+    const invalid = validateFullForm(emptyForm({ ...base, portionsStr: 'x' }));
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.errors.portions).toBeTruthy();
+    const missing = validateFullForm(emptyForm({ ...base, portionsStr: '' }));
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.errors.portions).toBeTruthy();
+  });
+
+  it('portions survive the draft -> recipe -> form round trip', () => {
+    const values = emptyForm({
+      name: 'Guláš',
+      portionsStr: '4',
+      ingredients: [{ name: 'maso', amountStr: '500', unit: 'g' }],
+    });
+    const result = validateFullForm(values);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const recipe = toRecipe(result.recipe, undefined, '2026-07-19T00:00:00Z', () => 'id1');
+    expect(recipe.portions).toBe(4);
+    expect(fromRecipe(recipe).portionsStr).toBe('4');
+  });
+
+  it('a legacy recipe without portions opens in the edit form with the default of 2', () => {
+    const recipe: Recipe = {
+      id: 'r1',
+      name: 'Rizoto',
+      category: 'jiné',
+      effort: 'quick',
+      ingredients: [],
+      untried: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    expect(fromRecipe(recipe).portionsStr).toBe('2');
+  });
+});
+
+describe('formatPortions', () => {
+  it('uses czech plural forms', async () => {
+    const { formatPortions } = await import('./recipeFormLogic');
+    expect(formatPortions(1)).toBe('1 porce');
+    expect(formatPortions(4)).toBe('4 porce');
+    expect(formatPortions(5)).toBe('5 porcí');
+    expect(formatPortions(12)).toBe('12 porcí');
   });
 });

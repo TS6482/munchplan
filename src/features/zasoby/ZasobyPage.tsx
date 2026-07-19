@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useDataStore } from '../../store/data';
-import { sortedPantry, validatePantryName } from './pantryLogic';
+import { parseAmount, unitOptions } from '../recipes/recipeFormLogic';
+import { pantryItemText, sortedPantry, validatePantryName } from './pantryLogic';
 import { sortedSales, validateSaleName } from './salesLogic';
 import styles from './ZasobyPage.module.css';
 
@@ -38,13 +39,15 @@ function SalesSegment() {
       <form className={styles.form} onSubmit={handleSubmit}>
         <input placeholder="Název ingredience" value={name} onChange={(e) => setName(e.target.value)} />
         <input placeholder="např. Lidl 89 Kč" value={note} onChange={(e) => setNote(e.target.value)} />
-        <button type="submit">Přidat</button>
+        <button type="submit" className="btn btnPrimary">
+          Přidat
+        </button>
         {error && <p className={styles.error}>{error}</p>}
       </form>
 
       <div className={styles.listHeader}>
         <span>{list.length} položek</span>
-        <button type="button" onClick={handleClear}>
+        <button type="button" className="btn btnDanger" onClick={handleClear}>
           Nový týden
         </button>
       </div>
@@ -76,6 +79,8 @@ function PantrySegment() {
   const removePantryItem = useDataStore((s) => s.removePantryItem);
 
   const [name, setName] = useState('');
+  const [amountStr, setAmountStr] = useState('');
+  const [unit, setUnit] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   function handleSubmit(e: FormEvent) {
@@ -85,9 +90,16 @@ function PantrySegment() {
       setError(result.error);
       return;
     }
+    const amount = parseAmount(amountStr);
+    if (amount === 'invalid') {
+      setError('Neplatné množství');
+      return;
+    }
     setError(null);
-    void addPantryItem(name.trim());
+    void addPantryItem(name.trim(), amount, unit.trim() || undefined);
     setName('');
+    setAmountStr('');
+    setUnit('');
   }
 
   const list = sortedPantry(pantry);
@@ -96,7 +108,17 @@ function PantrySegment() {
     <div className={styles.segmentContent}>
       <form className={styles.form} onSubmit={handleSubmit}>
         <input placeholder="Název ingredience" value={name} onChange={(e) => setName(e.target.value)} />
-        <button type="submit">Přidat</button>
+        <input placeholder="Množství" value={amountStr} onChange={(e) => setAmountStr(e.target.value)} />
+        <select className="select" aria-label="Jednotka" value={unit} onChange={(e) => setUnit(e.target.value)}>
+          {unitOptions('').map((u) => (
+            <option key={u} value={u}>
+              {u === '' ? '— bez jednotky' : u}
+            </option>
+          ))}
+        </select>
+        <button type="submit" className="btn btnPrimary">
+          Přidat
+        </button>
         {error && <p className={styles.error}>{error}</p>}
       </form>
 
@@ -105,9 +127,9 @@ function PantrySegment() {
       ) : (
         <ul className={styles.list}>
           {list.map((item) => (
-            <li key={item} className={styles.row}>
-              <span className={styles.rowText}>{item}</span>
-              <button type="button" onClick={() => void removePantryItem(item)} aria-label={`Odebrat ${item}`}>
+            <li key={item.name} className={styles.row}>
+              <span className={styles.rowText}>{pantryItemText(item)}</span>
+              <button type="button" onClick={() => void removePantryItem(item.name)} aria-label={`Odebrat ${item.name}`}>
                 ×
               </button>
             </li>

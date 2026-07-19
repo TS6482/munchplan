@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GithubConfig } from '../api/github';
-import type { Recipe } from '../types';
+import type { Pantry, Recipe } from '../types';
 import { DEFAULT_PANTRY } from './seed';
 import { upsertRecipe } from './ops';
 
@@ -72,7 +72,7 @@ describe('loadAll', () => {
       const shas: Record<string, { data: unknown; sha: string }> = {
         'recipes.json': { data: [makeRecipe()], sha: 'r-sha' },
         'plans.json': { data: { '2026-W30': { days: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null } } }, sha: 'p-sha' },
-        'pantry.json': { data: ['sůl'], sha: 'pa-sha' },
+        'pantry.json': { data: [{ name: 'sůl' }], sha: 'pa-sha' },
         'sales.json': { data: [{ name: 'kuřecí' }], sha: 's-sha' },
         'settings.json': { data: { persons: [{ name: 'A', blocked: [] }, { name: 'B', blocked: [] }], dietRules: [], rotationWeeks: 2 }, sha: 'se-sha' },
         'extras.json': { data: { weeks: {} }, sha: 'e-sha' },
@@ -87,10 +87,25 @@ describe('loadAll', () => {
     const state = useDataStore.getState();
     expect(state.status).toBe('ready');
     expect(state.files.recipes).toEqual({ data: [makeRecipe()], sha: 'r-sha' });
-    expect(state.files.pantry).toEqual({ data: ['sůl'], sha: 'pa-sha' });
+    expect(state.files.pantry).toEqual({ data: [{ name: 'sůl' }], sha: 'pa-sha' });
     expect(state.files.sales).toEqual({ data: [{ name: 'kuřecí' }], sha: 's-sha' });
     expect(state.files.extras).toEqual({ data: { weeks: {} }, sha: 'e-sha' });
     expect(saveWithRetryMock).not.toHaveBeenCalled();
+  });
+
+  it('migrates legacy string[] pantry data (from getFile) into PantryItem[] on load', async () => {
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockImplementation(async (_cfg, path: string) => {
+      if (path === 'pantry.json') return { data: ['sůl', 'mouka'], sha: 'pa-sha-legacy' };
+      return null;
+    });
+
+    await useDataStore.getState().loadAll(cfg);
+
+    expect(useDataStore.getState().files.pantry).toEqual({
+      data: [{ name: 'sůl' }, { name: 'mouka' }],
+      sha: 'pa-sha-legacy',
+    });
   });
 
   it('authError path: probeRepo AuthError stops before any file fetch, no seeding', async () => {
@@ -147,7 +162,7 @@ describe('loadAll', () => {
       // device's seed landed first; remote already holds the same staples; apply(op, remote)
       // re-applies setPantry (idempotent full-replace) on top of it.
       const remoteAfterRace = [...DEFAULT_PANTRY];
-      const merged = (apply as (op: unknown, remote: string[]) => string[])(op, remoteAfterRace);
+      const merged = (apply as (op: unknown, remote: Pantry) => Pantry)(op, remoteAfterRace);
       return { data: merged, sha: 'seed-sha-after-race' };
     });
 
@@ -155,11 +170,11 @@ describe('loadAll', () => {
 
     const pantry = useDataStore.getState().files.pantry;
     expect(pantry.data).toEqual(DEFAULT_PANTRY);
-    expect(new Set(pantry.data).size).toBe(pantry.data.length);
+    expect(new Set((pantry.data as Pantry).map((i) => i.name)).size).toBe(pantry.data.length);
     expect(pantry.sha).toBe('seed-sha-after-race');
   });
 
-  it('NetworkError during load hydrates from localStorage cache and sets offline true', async () => {
+  it('NetworkError during load hydrates from localStorage cache and sets offline true (migrates legacy pantry cache)', async () => {
     probeRepoMock.mockResolvedValue(undefined);
     getFileMock.mockRejectedValue(new NetworkError());
 
@@ -185,7 +200,7 @@ describe('loadAll', () => {
     expect(state.status).toBe('ready');
     expect(state.offline).toBe(true);
     expect(state.files.recipes.data).toEqual([makeRecipe()]);
-    expect(state.files.pantry.data).toEqual(['sůl']);
+    expect(state.files.pantry.data).toEqual([{ name: 'sůl' }]);
     expect(saveWithRetryMock).not.toHaveBeenCalled();
   });
 

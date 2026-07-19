@@ -51,9 +51,10 @@
 .form input {
   flex: 1;
   min-width: 120px;
+  min-height: 44px;
   padding: var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 15px;

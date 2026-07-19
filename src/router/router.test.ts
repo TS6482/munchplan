@@ -26,6 +26,10 @@ describe('parseRoute', () => {
     expect(parseRoute('#/recepty/abc')).toEqual({ name: 'recipe', id: 'abc' });
   });
 
+  it('maps "#/recepty/novy" to recipeNew, not a recipe detail', () => {
+    expect(parseRoute('#/recepty/novy')).toEqual({ name: 'recipeNew' });
+  });
+
   it('maps "#/nakup" to shopping', () => {
     expect(parseRoute('#/nakup')).toEqual({ name: 'shopping' });
   });
@@ -48,6 +52,7 @@ describe('routeHash', () => {
     { name: 'plan' },
     { name: 'recipes' },
     { name: 'recipe', id: 'abc' },
+    { name: 'recipeNew' },
     { name: 'shopping' },
     { name: 'zasoby' },
     { name: 'settings' },

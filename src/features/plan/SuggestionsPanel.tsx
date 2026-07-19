@@ -15,9 +15,7 @@ function SuggestionsPanel({ recipesEmpty, suggestions, onAssign }: SuggestionsPa
       <h2>Návrhy</h2>
 
       {recipesEmpty ? (
-        <p className={styles.empty}>
-          Zatím nemáš žádné recepty. <a href="#/recepty">Přidat recept</a>
-        </p>
+        <p className={styles.empty}>Zatím nemáš žádné recepty — přidej ho přes ⋯ vpravo nahoře.</p>
       ) : suggestions.length === 0 ? (
         <p className={styles.empty}>Žádné návrhy pro tento týden.</p>
       ) : (
@@ -34,7 +32,7 @@ function SuggestionsPanel({ recipesEmpty, suggestions, onAssign }: SuggestionsPa
                   {view.saleText && <span className={styles.sale}>{view.saleText}</span>}
                   <span className={styles.fresh}>{view.freshText}</span>
                 </div>
-                <button type="button" onClick={() => onAssign(view.id)}>
+                <button type="button" className="btn btnSecondary" onClick={() => onAssign(view.id)}>
                   Přidat
                 </button>
               </li>

@@ -67,7 +67,7 @@ function RepoSection() {
           {owner}/{repo}
         </p>
         <p>Token: {maskToken(token)}</p>
-        <button type="button" onClick={handleDisconnect}>
+        <button type="button" className="btn btnDanger" onClick={handleDisconnect}>
           Odpojit
         </button>
       </section>
@@ -93,7 +93,7 @@ function RepoSection() {
       </label>
       {errors.token && <p className={styles.error}>{errors.token}</p>}
       <p className={styles.hint}>Token je uložen jen v tomto zařízení</p>
-      <button type="button" onClick={handleSave}>
+      <button type="button" className="btn btnPrimary" onClick={handleSave}>
         Uložit
       </button>
     </section>
@@ -159,7 +159,7 @@ function PersonCard({ idx, person, setPersonName, setBlockedList }: PersonCardPr
           value={blockedInput}
           onChange={(e) => setBlockedInput(e.target.value)}
         />
-        <button type="button" onClick={handleAddBlocked}>
+        <button type="button" className="btn btnSecondary" onClick={handleAddBlocked}>
           Přidat
         </button>
       </div>
@@ -237,7 +237,7 @@ function DietRulesSection() {
         <input placeholder="Kategorie" value={category} onChange={(e) => setCategory(e.target.value)} />
         <input placeholder="Min" value={min} onChange={(e) => setMin(e.target.value)} />
         <input placeholder="Max" value={max} onChange={(e) => setMax(e.target.value)} />
-        <button type="button" onClick={handleAdd}>
+        <button type="button" className="btn btnSecondary" onClick={handleAdd}>
           Přidat pravidlo
         </button>
       </div>

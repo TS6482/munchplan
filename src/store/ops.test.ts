@@ -12,6 +12,7 @@ import {
   assignDay,
   clearSales,
   deleteRecipe,
+  normalizePantry,
   removePantryItem,
   setBlockedList,
   setCheck,
@@ -54,25 +55,59 @@ function makeWeekExtras(overrides: Partial<WeekExtras> = {}): WeekExtras {
 
 describe('pantry ops', () => {
   it('removePantryItem re-applied on remote that meanwhile gained an item: deletion sticks AND the new item survives', () => {
-    const remote: Pantry = ['sůl', 'cibule', 'nová položka'];
+    const remote: Pantry = [{ name: 'sůl' }, { name: 'cibule' }, { name: 'nová položka' }];
     const result = applyPantryOp(removePantryItem('sůl'), remote);
-    expect(result).not.toContain('sůl');
-    expect(result).toContain('cibule');
-    expect(result).toContain('nová položka');
+    const names = result.map((i) => i.name);
+    expect(names).not.toContain('sůl');
+    expect(names).toContain('cibule');
+    expect(names).toContain('nová položka');
   });
 
-  it('addPantryItem is a no-op when an item with the same normalized name already exists (preserves stored spelling)', () => {
-    const remote: Pantry = ['Sůl'];
+  it('addPantryItem appends a new item with amount/unit when the name is new', () => {
+    const remote: Pantry = [{ name: 'Sůl' }];
+    const result = applyPantryOp(addPantryItem('rýže', 500, 'g'), remote);
+    expect(result).toEqual([{ name: 'Sůl' }, { name: 'rýže', amount: 500, unit: 'g' }]);
+  });
+
+  it('addPantryItem on an existing normalized name UPDATES amount/unit, preserving the stored name spelling', () => {
+    const remote: Pantry = [{ name: 'Sůl' }];
+    const result = applyPantryOp(addPantryItem('sul', 2, 'kg'), remote);
+    expect(result).toEqual([{ name: 'Sůl', amount: 2, unit: 'kg' }]);
+  });
+
+  it('addPantryItem with amount/unit omitted on an existing item CLEARS its stored amount/unit (newer wins)', () => {
+    const remote: Pantry = [{ name: 'Sůl', amount: 2, unit: 'kg' }];
     const result = applyPantryOp(addPantryItem('sul'), remote);
-    expect(result).toEqual(['Sůl']);
+    expect(result).toEqual([{ name: 'Sůl' }]);
   });
 
   it('does not mutate the input array', () => {
-    const remote: Pantry = ['sůl'];
-    const frozen = [...remote];
+    const remote: Pantry = [{ name: 'sůl' }];
+    const frozen = JSON.parse(JSON.stringify(remote)) as Pantry;
     applyPantryOp(removePantryItem('sůl'), remote);
     applyPantryOp(addPantryItem('cukr'), remote);
     expect(remote).toEqual(frozen);
+  });
+});
+
+describe('normalizePantry', () => {
+  it('converts legacy string entries to {name}', () => {
+    expect(normalizePantry(['sůl', 'mouka'])).toEqual([{ name: 'sůl' }, { name: 'mouka' }]);
+  });
+
+  it('passes through well-formed object entries with amount/unit', () => {
+    const data = [{ name: 'rýže', amount: 500, unit: 'g' }];
+    expect(normalizePantry(data)).toEqual(data);
+  });
+
+  it('drops unparseable entries (non-string, missing/non-string name)', () => {
+    expect(normalizePantry([{ name: 'ok' }, 42, null, { foo: 'bar' }])).toEqual([{ name: 'ok' }]);
+  });
+
+  it('non-array input returns an empty array', () => {
+    expect(normalizePantry(null)).toEqual([]);
+    expect(normalizePantry(undefined)).toEqual([]);
+    expect(normalizePantry({})).toEqual([]);
   });
 });
 

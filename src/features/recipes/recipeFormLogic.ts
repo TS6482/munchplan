@@ -22,6 +22,7 @@ export interface FormValues {
   effort: Effort;
   source: string;
   notes: string;
+  portionsStr: string;
   ingredients: IngredientFormRow[];
 }
 
@@ -38,12 +39,14 @@ export interface RecipeDraft {
   effort: Effort;
   source?: string;
   notes?: string;
+  portions?: number;
   ingredients: Ingredient[];
   untried: boolean;
 }
 
 export interface FullFormErrors {
   name?: string;
+  portions?: string;
   ingredients?: string;
   ingredientErrors?: Record<number, string>;
 }
@@ -75,6 +78,27 @@ export function formatAmount(n: number): string {
   return rounded.toString().replace('.', ',');
 }
 
+/** Portion counts offered by the dropdown. */
+export const PORTION_OPTIONS = Array.from({ length: 10 }, (_, i) => i + 1);
+
+/**
+ * `''` → no portion count given; a whole number 1–10 → that number;
+ * anything else (zero, negative, decimal, text, >10) → `'invalid'`.
+ */
+export function parsePortions(raw: string): number | undefined | 'invalid' {
+  const trimmed = raw.trim();
+  if (trimmed === '') return undefined;
+  if (!/^\d+$/.test(trimmed)) return 'invalid';
+  const n = Number(trimmed);
+  if (n < 1 || n > 10) return 'invalid';
+  return n;
+}
+
+/** Czech plural: 1 porce, 2–4 porce, 5+ porcí. */
+export function formatPortions(n: number): string {
+  return `${n} ${n >= 5 ? 'porcí' : 'porce'}`;
+}
+
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -84,6 +108,10 @@ export function validateFullForm(values: FormValues): FullFormResult {
   const errors: FullFormErrors = {};
   const name = values.name.trim();
   if (!name) errors.name = 'Vyplňte název receptu';
+
+  const portions = parsePortions(values.portionsStr);
+  if (portions === 'invalid') errors.portions = 'Počet porcí musí být celé číslo od 1 do 10';
+  else if (portions === undefined) errors.portions = 'Vyberte počet porcí';
 
   const ingredients: Ingredient[] = [];
   const ingredientErrors: Record<number, string> = {};
@@ -122,6 +150,7 @@ export function validateFullForm(values: FormValues): FullFormResult {
       effort: values.effort,
       source: values.source.trim() || undefined,
       notes: values.notes.trim() || undefined,
+      portions: typeof portions === 'number' ? portions : undefined,
       ingredients,
       untried: false,
     },
@@ -170,6 +199,7 @@ export function toRecipe(
       effort: draft.effort,
       source: draft.source,
       notes: draft.notes,
+      portions: draft.portions,
       ingredients: draft.ingredients,
       updatedAt: now,
     };
@@ -181,6 +211,7 @@ export function toRecipe(
     effort: draft.effort,
     source: draft.source,
     notes: draft.notes,
+    portions: draft.portions,
     ingredients: draft.ingredients,
     untried: draft.untried,
     createdAt: now,
@@ -196,6 +227,7 @@ export function fromRecipe(recipe: Recipe): FormValues {
     effort: recipe.effort,
     source: recipe.source ?? '',
     notes: recipe.notes ?? '',
+    portionsStr: recipe.portions !== undefined ? String(recipe.portions) : '2',
     ingredients: recipe.ingredients.map((ing) => ({
       name: ing.name,
       amountStr: ing.amount !== undefined ? formatAmount(ing.amount) : '',
@@ -216,6 +248,36 @@ export function promoteRecipe(recipe: Recipe, now: string): Recipe {
 /** Spec: a recipe needs at least one ingredient before it can be assigned to a weekly plan. */
 export function canBePlanned(recipe: Recipe): boolean {
   return recipe.ingredients.length > 0;
+}
+
+/** Standardized units of measure offered by the ingredient unit dropdown. */
+export const STANDARD_UNITS = [
+  'g',
+  'kg',
+  'ml',
+  'l',
+  'ks',
+  'lžíce',
+  'lžička',
+  'hrnek',
+  'špetka',
+  'balení',
+  'plátek',
+  'stroužek',
+  'konzerva',
+] as const;
+
+/**
+ * Options for the unit dropdown: empty ("bez jednotky") first, then the
+ * standard units, plus the edited recipe's current unit when it predates the
+ * dropdown (legacy free-text units must not be silently lost on edit).
+ */
+export function unitOptions(current: string): string[] {
+  const options: string[] = ['', ...STANDARD_UNITS];
+  if (current !== '' && !options.includes(current)) {
+    options.push(current);
+  }
+  return options;
 }
 
 /**

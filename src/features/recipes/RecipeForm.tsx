@@ -4,7 +4,9 @@ import { navigate } from '../../router/router';
 import type { Effort, Recipe } from '../../types';
 import {
   fromRecipe,
+  PORTION_OPTIONS,
   toRecipe,
+  unitOptions,
   validateFullForm,
   type FormValues,
   type FullFormErrors,
@@ -26,17 +28,19 @@ function emptyRow(): IngredientFormRow {
 }
 
 function emptyForm(): FormValues {
-  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', ingredients: [emptyRow()] };
+  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', portionsStr: '2', ingredients: [emptyRow()] };
 }
 
 interface RecipeFormProps {
   /** Present when editing an existing recipe; absent when creating a new one. */
   existing?: Recipe;
   onCancel: () => void;
+  /** On create only: whether the new recipe stays in the "Vyzkoušet" inbox. Ignored when editing. */
+  untried?: boolean;
 }
 
 /** Full recipe form, used both for creating a new recipe and editing an existing one. */
-function RecipeForm({ existing, onCancel }: RecipeFormProps) {
+function RecipeForm({ existing, onCancel, untried = false }: RecipeFormProps) {
   const addRecipe = useDataStore((s) => s.addRecipe);
   const [values, setValues] = useState<FormValues>(() => (existing ? fromRecipe(existing) : emptyForm()));
   const [categoryMode, setCategoryMode] = useState<'known' | 'custom'>(() =>
@@ -74,7 +78,8 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
       return;
     }
     setErrors({});
-    const recipe = toRecipe(result.recipe, existing, new Date().toISOString());
+    const draft = existing ? result.recipe : { ...result.recipe, untried };
+    const recipe = toRecipe(draft, existing, new Date().toISOString());
     void addRecipe(recipe).then(() => navigate({ name: 'recipe', id: recipe.id }));
   }
 
@@ -88,7 +93,7 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
 
       <label className={styles.field}>
         Kategorie
-        <select value={categoryMode === 'known' ? values.category : CUSTOM_CATEGORY} onChange={(e) => handleCategorySelect(e.target.value)}>
+        <select className="select" value={categoryMode === 'known' ? values.category : CUSTOM_CATEGORY} onChange={(e) => handleCategorySelect(e.target.value)}>
           {KNOWN_CATEGORIES.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -106,16 +111,34 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
         />
       )}
 
-      <label className={styles.field}>
-        Náročnost
-        <select value={values.effort} onChange={(e) => setValues((v) => ({ ...v, effort: e.target.value as Effort }))}>
-          {EFFORTS.map((ef) => (
-            <option key={ef.value} value={ef.value}>
-              {ef.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className={styles.fieldRow}>
+        <label className={styles.field}>
+          Náročnost
+          <select className="select" value={values.effort} onChange={(e) => setValues((v) => ({ ...v, effort: e.target.value as Effort }))}>
+            {EFFORTS.map((ef) => (
+              <option key={ef.value} value={ef.value}>
+                {ef.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className={styles.field}>
+          Počet porcí
+          <select
+            className="select"
+            value={values.portionsStr}
+            onChange={(e) => setValues((v) => ({ ...v, portionsStr: e.target.value }))}
+          >
+            {PORTION_OPTIONS.map((n) => (
+              <option key={n} value={String(n)}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {errors.portions && <p className={styles.error}>{errors.portions}</p>}
 
       <label className={styles.field}>
         Zdroj
@@ -134,21 +157,34 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
           <div key={i} className={styles.ingredientRow}>
             <input placeholder="Název" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
             <input placeholder="Množství" value={row.amountStr} onChange={(e) => updateRow(i, { amountStr: e.target.value })} />
-            <input placeholder="Jednotka" value={row.unit} onChange={(e) => updateRow(i, { unit: e.target.value })} />
+            <select
+              className="select"
+              aria-label="Jednotka"
+              value={row.unit}
+              onChange={(e) => updateRow(i, { unit: e.target.value })}
+            >
+              {unitOptions(row.unit).map((u) => (
+                <option key={u} value={u}>
+                  {u === '' ? '— bez jednotky' : u}
+                </option>
+              ))}
+            </select>
             <button type="button" onClick={() => removeRow(i)} aria-label="Odebrat ingredienci">
               ×
             </button>
             {errors.ingredientErrors?.[i] && <p className={styles.error}>{errors.ingredientErrors[i]}</p>}
           </div>
         ))}
-        <button type="button" onClick={addRow}>
+        <button type="button" className="btn btnSecondary btnBlock" onClick={addRow}>
           Přidat ingredienci
         </button>
       </div>
 
       <div className={styles.actions}>
-        <button type="submit">Uložit</button>
-        <button type="button" onClick={onCancel}>
+        <button type="submit" className="btn btnPrimary">
+          Uložit
+        </button>
+        <button type="button" className="btn btnNeutral" onClick={onCancel}>
           Zrušit
         </button>
       </div>

@@ -134,7 +134,7 @@ export interface DataState {
   addRecipe: (recipe: Recipe) => Promise<void>;
   removeRecipe: (id: string) => Promise<void>;
   assignDay: (week: WeekKey, day: IsoDay, recipeId: string | null) => Promise<void>;
-  addPantryItem: (name: string) => Promise<void>;
+  addPantryItem: (name: string, amount?: number, unit?: string) => Promise<void>;
   removePantryItem: (name: string) => Promise<void>;
   upsertSaleItem: (name: string, note?: string) => Promise<void>;
   removeSaleItem: (name: string) => Promise<void>;
@@ -161,7 +161,10 @@ export const useDataStore = create<DataState>()((set, get) => {
     }
     const files = defaultFiles();
     for (const { key, data } of cached) {
-      if (data !== null) (files as Record<FileKey, FileState<unknown>>)[key] = { data, sha: undefined };
+      if (data !== null) {
+        const normalized = key === 'pantry' ? ops.normalizePantry(data) : data;
+        (files as Record<FileKey, FileState<unknown>>)[key] = { data: normalized, sha: undefined };
+      }
     }
     set({ files, status: 'ready', offline: true });
   }
@@ -206,8 +209,9 @@ export const useDataStore = create<DataState>()((set, get) => {
     FILE_KEYS.forEach((key, i) => {
       const result = fetched[i];
       if (result) {
-        (files as Record<FileKey, FileState<unknown>>)[key] = { data: result.data, sha: result.sha };
-        writeCache(FILES[key].path, result.data);
+        const data = key === 'pantry' ? ops.normalizePantry(result.data) : result.data;
+        (files as Record<FileKey, FileState<unknown>>)[key] = { data, sha: result.sha };
+        writeCache(FILES[key].path, data);
       } else if (key === 'pantry') {
         pantryIsFirstRun = true;
         files.pantry = { data: DEFAULT_PANTRY, sha: undefined };
@@ -297,7 +301,7 @@ export const useDataStore = create<DataState>()((set, get) => {
     addRecipe: (recipe) => mutate('recipes', ops.upsertRecipe(recipe)),
     removeRecipe: (id) => mutate('recipes', ops.deleteRecipe(id)),
     assignDay: (week, day, recipeId) => mutate('plans', ops.assignDay(week, day, recipeId)),
-    addPantryItem: (name) => mutate('pantry', ops.addPantryItem(name)),
+    addPantryItem: (name, amount, unit) => mutate('pantry', ops.addPantryItem(name, amount, unit)),
     removePantryItem: (name) => mutate('pantry', ops.removePantryItem(name)),
     upsertSaleItem: (name, note) => mutate('sales', ops.upsertSaleItem(name, note)),
     removeSaleItem: (name) => mutate('sales', ops.removeSaleItem(name)),

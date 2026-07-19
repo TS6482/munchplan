@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useDataStore } from '../../store/data';
 import { navigate } from '../../router/router';
 import type { Ingredient, Recipe } from '../../types';
-import { EFFORT_LABELS, canBePlanned, formatAmount, promoteRecipe, sourceHref } from './recipeFormLogic';
+import { EFFORT_LABELS, canBePlanned, formatAmount, formatPortions, promoteRecipe, sourceHref } from './recipeFormLogic';
 import RecipeForm from './RecipeForm';
 import styles from './RecipeDetailPage.module.css';
 
@@ -59,6 +59,7 @@ function RecipeDetailPage({ id }: { id: string }) {
       <div className={styles.chips}>
         <span className={styles.chip}>{recipe.category}</span>
         <span className={styles.chip}>{EFFORT_LABELS[recipe.effort]}</span>
+        {recipe.portions !== undefined && <span className={styles.chip}>{formatPortions(recipe.portions)}</span>}
       </div>
 
       {!canBePlanned(recipe) && (
@@ -100,14 +101,14 @@ function RecipeDetailPage({ id }: { id: string }) {
 
       <div className={styles.actions}>
         {recipe.untried && (
-          <button type="button" onClick={handlePromote}>
+          <button type="button" className="btn btnPrimary" onClick={handlePromote}>
             Vyzkoušeno ✓
           </button>
         )}
-        <button type="button" onClick={() => setEditing(true)}>
+        <button type="button" className="btn btnSecondary" onClick={() => setEditing(true)}>
           Upravit
         </button>
-        <button type="button" className={styles.danger} onClick={handleDelete}>
+        <button type="button" className="btn btnDanger" onClick={handleDelete}>
           Smazat
         </button>
       </div>

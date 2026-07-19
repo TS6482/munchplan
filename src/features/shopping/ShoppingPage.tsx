@@ -154,7 +154,9 @@ function ShoppingPage() {
         <h2 className={styles.sectionTitle}>Extra</h2>
         <form className={styles.form} onSubmit={handleAddExtra}>
           <input placeholder="Např. drogerie, snídaně…" value={extraName} onChange={(e) => setExtraName(e.target.value)} />
-          <button type="submit">Přidat</button>
+          <button type="submit" className="btn btnPrimary">
+            Přidat
+          </button>
           {extraError && <p className={styles.error}>{extraError}</p>}
         </form>
 

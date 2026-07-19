@@ -24,15 +24,6 @@ function RecipeListPage() {
   const [tab, setTab] = useState<'collection' | 'inbox'>('collection');
   const [showNewForm, setShowNewForm] = useState(false);
 
-  if (showNewForm) {
-    return (
-      <div className={styles.page}>
-        <h1>Nový recept</h1>
-        <RecipeForm onCancel={() => setShowNewForm(false)} />
-      </div>
-    );
-  }
-
   const collection = recipes
     .filter((r) => !r.untried)
     .slice()
@@ -43,9 +34,6 @@ function RecipeListPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <h1>Recepty</h1>
-        <button type="button" onClick={() => setShowNewForm(true)}>
-          Nový recept
-        </button>
       </div>
 
       <div className={styles.segments}>
@@ -76,6 +64,13 @@ function RecipeListPage() {
       ) : (
         <div className={styles.list}>
           <QuickAddForm />
+          {showNewForm ? (
+            <RecipeForm untried onCancel={() => setShowNewForm(false)} />
+          ) : (
+            <button type="button" className="btn btnSecondary btnBlock" onClick={() => setShowNewForm(true)}>
+              Vytvořit celý recept
+            </button>
+          )}
           {inbox.length === 0 ? (
             <p className={styles.empty}>Žádné recepty k vyzkoušení.</p>
           ) : (
