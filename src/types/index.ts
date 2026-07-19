@@ -30,6 +30,8 @@ export interface Recipe {
   effort: Effort;
   source?: string;
   notes?: string;
+  /** Number of servings the ingredient amounts are written for. */
+  portions?: number;
   untried: boolean;
   createdAt: string;
   updatedAt: string;

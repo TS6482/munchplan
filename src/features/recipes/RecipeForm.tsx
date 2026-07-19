@@ -27,7 +27,7 @@ function emptyRow(): IngredientFormRow {
 }
 
 function emptyForm(): FormValues {
-  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', ingredients: [emptyRow()] };
+  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', portionsStr: '', ingredients: [emptyRow()] };
 }
 
 interface RecipeFormProps {
@@ -117,6 +117,17 @@ function RecipeForm({ existing, onCancel }: RecipeFormProps) {
           ))}
         </select>
       </label>
+
+      <label className={styles.field}>
+        Počet porcí
+        <input
+          inputMode="numeric"
+          placeholder="např. 4"
+          value={values.portionsStr}
+          onChange={(e) => setValues((v) => ({ ...v, portionsStr: e.target.value }))}
+        />
+      </label>
+      {errors.portions && <p className={styles.error}>{errors.portions}</p>}
 
       <label className={styles.field}>
         Zdroj

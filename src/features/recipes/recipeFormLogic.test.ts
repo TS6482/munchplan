@@ -20,6 +20,7 @@ function emptyForm(overrides: Partial<FormValues> = {}): FormValues {
     effort: 'normal',
     source: '',
     notes: '',
+    portionsStr: '',
     ingredients: [],
     ...overrides,
   };
@@ -313,6 +314,7 @@ describe('fromRecipe', () => {
       effort: 'hard',
       source: 'https://example.com',
       notes: 'Vařit dlouho',
+      portionsStr: '',
       ingredients: [
         { name: 'maso', amountStr: '0,5', unit: 'kg' },
         { name: 'sůl', amountStr: '', unit: '' },
@@ -337,6 +339,7 @@ describe('fromRecipe', () => {
       effort: 'quick',
       source: '',
       notes: '',
+      portionsStr: '',
       ingredients: [],
     });
   });
@@ -363,5 +366,71 @@ describe('unitOptions', () => {
     const { unitOptions } = await import('./recipeFormLogic');
     const options = unitOptions('g');
     expect(options.filter((u) => u === 'g')).toHaveLength(1);
+  });
+});
+
+describe('portions', () => {
+  it('parsePortions: empty is undefined, positive integers accepted', async () => {
+    const { parsePortions } = await import('./recipeFormLogic');
+    expect(parsePortions('')).toBeUndefined();
+    expect(parsePortions('4')).toBe(4);
+    expect(parsePortions('1')).toBe(1);
+  });
+
+  it('parsePortions: zero, negative, decimal, and text are invalid', async () => {
+    const { parsePortions } = await import('./recipeFormLogic');
+    expect(parsePortions('0')).toBe('invalid');
+    expect(parsePortions('-2')).toBe('invalid');
+    expect(parsePortions('2,5')).toBe('invalid');
+    expect(parsePortions('2.5')).toBe('invalid');
+    expect(parsePortions('abc')).toBe('invalid');
+  });
+
+  it('validateFullForm: invalid portions produce a czech error', () => {
+    const values = emptyForm({
+      name: 'Guláš',
+      portionsStr: 'x',
+      ingredients: [{ name: 'maso', amountStr: '500', unit: 'g' }],
+    });
+    const result = validateFullForm(values);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.portions).toBeTruthy();
+  });
+
+  it('portions survive the draft -> recipe -> form round trip', () => {
+    const values = emptyForm({
+      name: 'Guláš',
+      portionsStr: '4',
+      ingredients: [{ name: 'maso', amountStr: '500', unit: 'g' }],
+    });
+    const result = validateFullForm(values);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const recipe = toRecipe(result.recipe, undefined, '2026-07-19T00:00:00Z', () => 'id1');
+    expect(recipe.portions).toBe(4);
+    expect(fromRecipe(recipe).portionsStr).toBe('4');
+  });
+
+  it('omitted portions stay undefined through the round trip', () => {
+    const values = emptyForm({
+      name: 'Guláš',
+      ingredients: [{ name: 'maso', amountStr: '500', unit: 'g' }],
+    });
+    const result = validateFullForm(values);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const recipe = toRecipe(result.recipe, undefined, '2026-07-19T00:00:00Z', () => 'id1');
+    expect(recipe.portions).toBeUndefined();
+    expect(fromRecipe(recipe).portionsStr).toBe('');
+  });
+});
+
+describe('formatPortions', () => {
+  it('uses czech plural forms', async () => {
+    const { formatPortions } = await import('./recipeFormLogic');
+    expect(formatPortions(1)).toBe('1 porce');
+    expect(formatPortions(4)).toBe('4 porce');
+    expect(formatPortions(5)).toBe('5 porcí');
+    expect(formatPortions(12)).toBe('12 porcí');
   });
 });
