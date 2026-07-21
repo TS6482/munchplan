@@ -40,7 +40,7 @@ export function weekChoices(now: Date): WeekChoice[] {
 // Day rows
 // ---------------------------------------------------------------------------
 
-const DAY_LABELS: Record<IsoDay, string> = {
+export const DAY_LABELS: Record<IsoDay, string> = {
   mon: 'Po',
   tue: 'Út',
   wed: 'St',
@@ -62,7 +62,7 @@ export interface DayRow {
 }
 
 /** 'YYYY-MM-DD' -> Czech short date 'D.M.' (no leading zeros). */
-function czechDate(isoDate: string): string {
+export function czechDate(isoDate: string): string {
   const [, month, day] = isoDate.split('-');
   return `${Number(day)}.${Number(month)}.`;
 }

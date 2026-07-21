@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { MealSlotKey } from '../../types';
 import type { RankSuggestionsInput } from '../../engine/suggest';
 import { normalizeName } from '../../engine/normalize';
 import { pickerEntries } from './planLogic';
@@ -6,14 +7,16 @@ import styles from './RecipePicker.module.css';
 
 interface RecipePickerProps {
   input: RankSuggestionsInput;
+  /** When given, warnings include the "unsuitable for this slot" line (AC5); the recipe stays pickable. */
+  slot?: MealSlotKey;
   onSelect: (recipeId: string) => void;
   onCancel: () => void;
 }
 
 /** Direct-assignment picker: search/browse the whole collection, bypassing suggestions. */
-function RecipePicker({ input, onSelect, onCancel }: RecipePickerProps) {
+function RecipePicker({ input, slot, onSelect, onCancel }: RecipePickerProps) {
   const [query, setQuery] = useState('');
-  const entries = pickerEntries(input);
+  const entries = pickerEntries(slot ? { ...input, slot } : input);
   const normalizedQuery = normalizeName(query);
   const filtered = normalizedQuery
     ? entries.filter((e) => normalizeName(e.recipe.name).includes(normalizedQuery))
