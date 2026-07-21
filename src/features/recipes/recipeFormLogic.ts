@@ -216,6 +216,9 @@ export function toRecipe(
     untried: draft.untried,
     createdAt: now,
     updatedAt: now,
+    suitableFor: ['lunch', 'dinner'],
+    componentType: 'full',
+    pairings: { sides: [], salads: [] },
   };
 }
 

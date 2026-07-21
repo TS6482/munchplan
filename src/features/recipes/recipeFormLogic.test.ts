@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Recipe } from '../../types';
+import { makeRecipe } from '../../testing/fixtures';
 import {
   canBePlanned,
   formatAmount,
@@ -207,7 +208,7 @@ describe('toRecipe', () => {
   });
 
   it('preserves id/createdAt/untried on edit, updates updatedAt', () => {
-    const existing: Recipe = {
+    const existing: Recipe = makeRecipe({
       id: 'existing-id',
       name: 'Guláš stará',
       category: 'jiné',
@@ -216,7 +217,7 @@ describe('toRecipe', () => {
       untried: true,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
-    };
+    });
     const recipe = toRecipe(draft, existing, '2026-07-19T10:00:00.000Z');
     expect(recipe.id).toBe('existing-id');
     expect(recipe.createdAt).toBe('2026-01-01T00:00:00.000Z');
@@ -228,7 +229,7 @@ describe('toRecipe', () => {
 
 describe('promoteRecipe', () => {
   it('sets untried false and updates updatedAt', () => {
-    const recipe: Recipe = {
+    const recipe: Recipe = makeRecipe({
       id: 'r1',
       name: 'Rizoto',
       category: 'jiné',
@@ -237,7 +238,7 @@ describe('promoteRecipe', () => {
       untried: true,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
-    };
+    });
     const promoted = promoteRecipe(recipe, '2026-07-19T10:00:00.000Z');
     expect(promoted.untried).toBe(false);
     expect(promoted.updatedAt).toBe('2026-07-19T10:00:00.000Z');
@@ -294,7 +295,7 @@ describe('formatAmount', () => {
 
 describe('fromRecipe', () => {
   it('maps a recipe back into form values, formatting amounts with a comma', () => {
-    const recipe: Recipe = {
+    const recipe: Recipe = makeRecipe({
       id: 'r1',
       name: 'Guláš',
       category: 'maso',
@@ -308,7 +309,7 @@ describe('fromRecipe', () => {
       untried: false,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
-    };
+    });
     expect(fromRecipe(recipe)).toEqual({
       name: 'Guláš',
       category: 'maso',
@@ -324,7 +325,7 @@ describe('fromRecipe', () => {
   });
 
   it('maps missing optional fields to empty strings', () => {
-    const recipe: Recipe = {
+    const recipe: Recipe = makeRecipe({
       id: 'r1',
       name: 'Rizoto',
       category: 'jiné',
@@ -333,7 +334,7 @@ describe('fromRecipe', () => {
       untried: true,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
-    };
+    });
     expect(fromRecipe(recipe)).toEqual({
       name: 'Rizoto',
       category: 'jiné',
@@ -419,7 +420,7 @@ describe('portions', () => {
   });
 
   it('a legacy recipe without portions opens in the edit form with the default of 2', () => {
-    const recipe: Recipe = {
+    const recipe: Recipe = makeRecipe({
       id: 'r1',
       name: 'Rizoto',
       category: 'jiné',
@@ -428,7 +429,7 @@ describe('portions', () => {
       untried: true,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
-    };
+    });
     expect(fromRecipe(recipe).portionsStr).toBe('2');
   });
 });

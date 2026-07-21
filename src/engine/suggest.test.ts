@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IsoDay, Plans, Recipe, SaleItem, Settings, WeekPlan } from '../types';
+import { makeRecipe } from '../testing/fixtures';
 import { rankSuggestions, warningsFor } from './suggest';
 
 const TARGET: string = '2026-W30';
@@ -13,7 +14,7 @@ function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
 }
 
 function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Recipe {
-  return {
+  return makeRecipe({
     ingredients: [{ name: 'ingredience' }],
     category: 'jine',
     effort: 'normal',
@@ -21,7 +22,7 @@ function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Reci
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
-  };
+  });
 }
 
 function settings(overrides?: Partial<Settings>): Settings {

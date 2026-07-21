@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Extras, Pantry, Plans, Recipe, SaleItem, Settings, WeekExtras } from '../types';
+import { makeRecipe } from '../testing/fixtures';
 import {
   addExtraItem,
   addPantryItem,
@@ -13,6 +14,7 @@ import {
   clearSales,
   deleteRecipe,
   normalizePantry,
+  normalizeRecipes,
   removePantryItem,
   setBlockedList,
   setCheck,
@@ -22,20 +24,6 @@ import {
   upsertRecipe,
   upsertSaleItem,
 } from './ops';
-
-function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
-  return {
-    id: 'r1',
-    name: 'Kuřecí stehna',
-    ingredients: [{ name: 'kuřecí stehna', amount: 500, unit: 'g' }],
-    category: 'maso',
-    effort: 'normal',
-    untried: false,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    ...overrides,
-  };
-}
 
 function makeSettings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -155,6 +143,105 @@ describe('recipes ops', () => {
     applyRecipesOp(deleteRecipe('r1'), remote);
     applyRecipesOp(upsertRecipe(makeRecipe({ id: 'r1', name: 'changed' })), remote);
     expect(remote).toEqual(frozen);
+  });
+
+  it('applyRecipesOp on a legacy-shape remote normalizes it first, so the merged result is fully new-shape', () => {
+    const legacyRemote = [
+      {
+        id: 'r1',
+        name: 'Stará polévka',
+        ingredients: [{ name: 'zelenina' }],
+        category: 'polévka',
+        effort: 'quick',
+        untried: false,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+        // no suitableFor / componentType / pairings
+      },
+    ] as unknown as Recipe[];
+    const local = makeRecipe({ id: 'r2', name: 'New recipe' });
+    const result = applyRecipesOp(upsertRecipe(local), legacyRemote);
+
+    const migrated = result.find((r) => r.id === 'r1');
+    expect(migrated?.suitableFor).toEqual(['lunch', 'dinner']);
+    expect(migrated?.componentType).toBe('full');
+    expect(migrated?.pairings).toEqual({ sides: [], salads: [] });
+    expect(result.find((r) => r.id === 'r2')).toEqual(local);
+  });
+});
+
+describe('normalizeRecipes', () => {
+  it('legacy recipe without the new fields gets full defaults', () => {
+    const legacy = {
+      id: 'r1',
+      name: 'Stará polévka',
+      ingredients: [{ name: 'zelenina' }],
+      category: 'polévka',
+      effort: 'quick',
+      untried: false,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    };
+    const [result] = normalizeRecipes([legacy]);
+    expect(result.suitableFor).toEqual(['lunch', 'dinner']);
+    expect(result.componentType).toBe('full');
+    expect(result.pairings).toEqual({ sides: [], salads: [] });
+    // Untouched fields pass through unchanged.
+    expect(result.id).toBe('r1');
+    expect(result.name).toBe('Stará polévka');
+  });
+
+  it('a recipe already carrying valid fields passes through unchanged', () => {
+    const recipe = makeRecipe({
+      suitableFor: ['breakfast'],
+      componentType: 'main',
+      pairings: { sides: ['r-side'], salads: ['r-salad'] },
+    });
+    const [result] = normalizeRecipes([recipe]);
+    expect(result).toEqual(recipe);
+  });
+
+  it('suitableFor: [] falls back to the default (must never be unsuggestable everywhere)', () => {
+    const recipe = makeRecipe({ suitableFor: [] });
+    const [result] = normalizeRecipes([recipe]);
+    expect(result.suitableFor).toEqual(['lunch', 'dinner']);
+  });
+
+  it('suitableFor with only unknown slot strings falls back to the default', () => {
+    const recipe = { ...makeRecipe(), suitableFor: ['brunch', 'elevenses'] };
+    const [result] = normalizeRecipes([recipe]);
+    expect(result.suitableFor).toEqual(['lunch', 'dinner']);
+  });
+
+  it('a mixed suitableFor array keeps the valid subset', () => {
+    const recipe = { ...makeRecipe(), suitableFor: ['lunch', 'bogus'] };
+    const [result] = normalizeRecipes([recipe]);
+    expect(result.suitableFor).toEqual(['lunch']);
+  });
+
+  it('an unknown componentType falls back to "full"', () => {
+    const recipe = { ...makeRecipe(), componentType: 'dessert' };
+    const [result] = normalizeRecipes([recipe]);
+    expect(result.componentType).toBe('full');
+  });
+
+  it('pairings missing one list defaults just that list to []', () => {
+    const recipe = { ...makeRecipe(), pairings: { sides: ['r-side'] } };
+    const [result] = normalizeRecipes([recipe]);
+    expect(result.pairings).toEqual({ sides: ['r-side'], salads: [] });
+  });
+
+  it('pairings missing entirely defaults both lists to []', () => {
+    const legacy = { ...makeRecipe() } as Partial<Recipe>;
+    delete legacy.pairings;
+    const [result] = normalizeRecipes([legacy]);
+    expect(result.pairings).toEqual({ sides: [], salads: [] });
+  });
+
+  it('non-array input returns an empty array', () => {
+    expect(normalizeRecipes(null)).toEqual([]);
+    expect(normalizeRecipes(undefined)).toEqual([]);
+    expect(normalizeRecipes({})).toEqual([]);
   });
 });
 

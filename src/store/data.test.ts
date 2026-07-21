@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GithubConfig } from '../api/github';
-import type { Pantry, Recipe } from '../types';
+import type { Pantry } from '../types';
+import { makeRecipe } from '../testing/fixtures';
 import { DEFAULT_PANTRY } from './seed';
 import { upsertRecipe } from './ops';
 
@@ -23,20 +24,6 @@ const getFileMock = vi.mocked(getFile);
 const saveWithRetryMock = vi.mocked(saveWithRetry);
 
 const cfg: GithubConfig = { owner: 'ts6482', repo: 'munchplan-data', token: 'pat-123' };
-
-function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
-  return {
-    id: 'r1',
-    name: 'Kuřecí stehna',
-    ingredients: [{ name: 'kuřecí stehna', amount: 500, unit: 'g' }],
-    category: 'maso',
-    effort: 'normal',
-    untried: false,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    ...overrides,
-  };
-}
 
 function makeLocalStorageMock(initial: Record<string, string> = {}) {
   const store = new Map(Object.entries(initial));
@@ -106,6 +93,39 @@ describe('loadAll', () => {
       data: [{ name: 'sůl' }, { name: 'mouka' }],
       sha: 'pa-sha-legacy',
     });
+  });
+
+  it('migrates legacy recipes.json (missing suitableFor/componentType/pairings) into the new shape on load, and writes the cache normalized', async () => {
+    const legacyRecipe = {
+      id: 'r1',
+      name: 'Stará polévka',
+      ingredients: [{ name: 'zelenina' }],
+      category: 'polévka',
+      effort: 'quick',
+      untried: false,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    };
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockImplementation(async (_cfg, path: string) => {
+      if (path === 'recipes.json') return { data: [legacyRecipe], sha: 'r-sha-legacy' };
+      return null;
+    });
+
+    await useDataStore.getState().loadAll(cfg);
+
+    const state = useDataStore.getState();
+    expect(state.files.recipes.data).toEqual([
+      { ...legacyRecipe, suitableFor: ['lunch', 'dinner'], componentType: 'full', pairings: { sides: [], salads: [] } },
+    ]);
+    expect(state.files.recipes.sha).toBe('r-sha-legacy');
+
+    const cached = JSON.parse(
+      (localStorage as unknown as { getItem: (k: string) => string }).getItem('munchplan.cache.recipes.json'),
+    );
+    expect(cached[0].suitableFor).toEqual(['lunch', 'dinner']);
+    expect(cached[0].componentType).toBe('full');
+    expect(cached[0].pairings).toEqual({ sides: [], salads: [] });
   });
 
   it('authError path: probeRepo AuthError stops before any file fetch, no seeding', async () => {
@@ -202,6 +222,37 @@ describe('loadAll', () => {
     expect(state.files.recipes.data).toEqual([makeRecipe()]);
     expect(state.files.pantry.data).toEqual([{ name: 'sůl' }]);
     expect(saveWithRetryMock).not.toHaveBeenCalled();
+  });
+
+  it('NetworkError during load hydrates a legacy-shape cached recipes.json snapshot into the new shape', async () => {
+    const legacyRecipe = {
+      id: 'r1',
+      name: 'Stará polévka',
+      ingredients: [{ name: 'zelenina' }],
+      category: 'polévka',
+      effort: 'quick',
+      untried: false,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    };
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockRejectedValue(new NetworkError());
+
+    vi.stubGlobal(
+      'localStorage',
+      makeLocalStorageMock({
+        'munchplan.cache.recipes.json': JSON.stringify([legacyRecipe]),
+      }),
+    );
+
+    await useDataStore.getState().loadAll(cfg);
+
+    const state = useDataStore.getState();
+    expect(state.status).toBe('ready');
+    expect(state.offline).toBe(true);
+    expect(state.files.recipes.data).toEqual([
+      { ...legacyRecipe, suitableFor: ['lunch', 'dinner'], componentType: 'full', pairings: { sides: [], salads: [] } },
+    ]);
   });
 
   it('NetworkError during load with no cache sets status error', async () => {

@@ -16,6 +16,25 @@ export type RecipeCategory = 'maso' | 'ryba' | 'vege' | 'těstoviny' | 'polévka
 
 export type Effort = 'quick' | 'normal' | 'hard';
 
+/** ASCII slot keys (feature 002); Czech UI labels live in src/components/slotLabels.ts. */
+export type MealSlotKey = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+/** Display/iteration order for the four meal slots. */
+export const SLOT_ORDER: MealSlotKey[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+/**
+ * Whether a recipe is a complete meal (`full`), a main needing accompaniment
+ * (`main`), a side (`side`), or a salad (`salad`). Persisted from feature 002
+ * onward but only consumed by the mix-and-match UI in feature 003.
+ */
+export type ComponentType = 'full' | 'main' | 'side' | 'salad';
+
+/** For `main` recipes: the specific sides/salads (by recipeId) that pair with it. */
+export interface Pairings {
+  sides: string[];
+  salads: string[];
+}
+
 export interface Ingredient {
   name: string;
   amount?: number;
@@ -35,6 +54,10 @@ export interface Recipe {
   untried: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Which meal slots this recipe fits; normalization guarantees this is never empty. */
+  suitableFor: MealSlotKey[];
+  componentType: ComponentType;
+  pairings: Pairings;
 }
 
 /** ISO-8601 day-of-week key, Monday-first. */

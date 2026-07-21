@@ -70,12 +70,24 @@ interface AnyFileEntry {
   path: string;
   emptyData: unknown;
   apply: (op: unknown, data: unknown) => unknown;
+  /** Migrates possibly-legacy raw data into the current shape; applied on load and cache hydrate. */
+  normalize?: (raw: unknown) => unknown;
 }
 
 const FILES: Record<FileKey, AnyFileEntry> = {
-  recipes: { path: 'recipes.json', emptyData: [] as Recipe[], apply: ops.applyRecipesOp as AnyFileEntry['apply'] },
+  recipes: {
+    path: 'recipes.json',
+    emptyData: [] as Recipe[],
+    apply: ops.applyRecipesOp as AnyFileEntry['apply'],
+    normalize: ops.normalizeRecipes as AnyFileEntry['normalize'],
+  },
   plans: { path: 'plans.json', emptyData: {}, apply: ops.applyPlansOp as AnyFileEntry['apply'] },
-  pantry: { path: 'pantry.json', emptyData: [] as Pantry, apply: ops.applyPantryOp as AnyFileEntry['apply'] },
+  pantry: {
+    path: 'pantry.json',
+    emptyData: [] as Pantry,
+    apply: ops.applyPantryOp as AnyFileEntry['apply'],
+    normalize: ops.normalizePantry as AnyFileEntry['normalize'],
+  },
   sales: { path: 'sales.json', emptyData: [] as SaleItem[], apply: ops.applySalesOp as AnyFileEntry['apply'] },
   settings: { path: 'settings.json', emptyData: DEFAULT_SETTINGS, apply: ops.applySettingsOp as AnyFileEntry['apply'] },
   extras: { path: 'extras.json', emptyData: { weeks: {} }, apply: ops.applyExtrasOp as AnyFileEntry['apply'] },
@@ -162,7 +174,8 @@ export const useDataStore = create<DataState>()((set, get) => {
     const files = defaultFiles();
     for (const { key, data } of cached) {
       if (data !== null) {
-        const normalized = key === 'pantry' ? ops.normalizePantry(data) : data;
+        const normalize = FILES[key].normalize;
+        const normalized = normalize ? normalize(data) : data;
         (files as Record<FileKey, FileState<unknown>>)[key] = { data: normalized, sha: undefined };
       }
     }
@@ -209,7 +222,8 @@ export const useDataStore = create<DataState>()((set, get) => {
     FILE_KEYS.forEach((key, i) => {
       const result = fetched[i];
       if (result) {
-        const data = key === 'pantry' ? ops.normalizePantry(result.data) : result.data;
+        const normalize = FILES[key].normalize;
+        const data = normalize ? normalize(result.data) : result.data;
         (files as Record<FileKey, FileState<unknown>>)[key] = { data, sha: result.sha };
         writeCache(FILES[key].path, data);
       } else if (key === 'pantry') {

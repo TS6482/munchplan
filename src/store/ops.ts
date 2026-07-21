@@ -25,11 +25,13 @@
  */
 
 import type {
+  ComponentType,
   DietRule,
   Extras,
   ExtraItem,
   IsoDay,
   ItemKey,
+  MealSlotKey,
   Pantry,
   PantryItem,
   Person,
@@ -57,15 +59,58 @@ export function deleteRecipe(id: string): RecipeOp {
 }
 
 export function applyRecipesOp(op: RecipeOp, data: Recipe[]): Recipe[] {
+  const recipes = normalizeRecipes(data);
   switch (op.type) {
     case 'upsertRecipe': {
-      const idx = data.findIndex((r) => r.id === op.recipe.id);
-      if (idx === -1) return [...data, op.recipe];
-      return data.map((r, i) => (i === idx ? op.recipe : r));
+      const idx = recipes.findIndex((r) => r.id === op.recipe.id);
+      if (idx === -1) return [...recipes, op.recipe];
+      return recipes.map((r, i) => (i === idx ? op.recipe : r));
     }
     case 'deleteRecipe':
-      return data.filter((r) => r.id !== op.id);
+      return recipes.filter((r) => r.id !== op.id);
   }
+}
+
+const DEFAULT_SUITABLE_FOR: MealSlotKey[] = ['lunch', 'dinner'];
+const VALID_SLOTS: MealSlotKey[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+const VALID_COMPONENT_TYPES: ComponentType[] = ['full', 'main', 'side', 'salad'];
+
+function normalizeSuitableFor(raw: unknown): MealSlotKey[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_SUITABLE_FOR];
+  const valid = raw.filter((v): v is MealSlotKey => VALID_SLOTS.includes(v as MealSlotKey));
+  return valid.length > 0 ? valid : [...DEFAULT_SUITABLE_FOR];
+}
+
+function normalizeComponentType(raw: unknown): ComponentType {
+  return VALID_COMPONENT_TYPES.includes(raw as ComponentType) ? (raw as ComponentType) : 'full';
+}
+
+function normalizePairings(raw: unknown): Recipe['pairings'] {
+  const obj = raw && typeof raw === 'object' ? (raw as Partial<Recipe['pairings']>) : {};
+  return {
+    sides: Array.isArray(obj.sides) ? obj.sides : [],
+    salads: Array.isArray(obj.salads) ? obj.salads : [],
+  };
+}
+
+/**
+ * Migrates raw (possibly legacy) recipe data into `Recipe[]`: a missing or
+ * invalid `suitableFor` (empty, or containing only unknown slot strings)
+ * falls back to `['lunch', 'dinner']`; a mixed array keeps the valid subset.
+ * An unknown/missing `componentType` becomes `'full'`; missing/partial
+ * `pairings` lists default to `[]` each. Non-array input yields `[]`.
+ */
+export function normalizeRecipes(data: unknown): Recipe[] {
+  if (!Array.isArray(data)) return [];
+  return data.map((raw) => {
+    const recipe = (raw ?? {}) as Partial<Recipe>;
+    return {
+      ...recipe,
+      suitableFor: normalizeSuitableFor(recipe.suitableFor),
+      componentType: normalizeComponentType(recipe.componentType),
+      pairings: normalizePairings(recipe.pairings),
+    } as Recipe;
+  });
 }
 
 // ---------------------------------------------------------------------------

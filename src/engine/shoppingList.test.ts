@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Ingredient, IsoDay, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
+import { makeRecipe } from '../testing/fixtures';
 import { buildShoppingList } from './shoppingList';
 
 function emptyDays(): Record<IsoDay, string | null> {
@@ -11,14 +12,14 @@ function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
 }
 
 function recipe(overrides: { id: string; name: string; ingredients: Ingredient[] }): Recipe {
-  return {
+  return makeRecipe({
     category: 'jine',
     effort: 'normal',
     untried: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
-  };
+  });
 }
 
 function extras(overrides?: Partial<WeekExtras>): WeekExtras {

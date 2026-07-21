@@ -3,6 +3,7 @@ import type { GithubConfig } from '../../api/github';
 import { itemKey } from '../../engine/match';
 import type { ShoppingItem } from '../../engine/shoppingList';
 import type { Extras, IsoDay, Plans, Recipe, WeekPlan } from '../../types';
+import { makeRecipe } from '../../testing/fixtures';
 import { itemAmountText, newExtraItem, shoppingView, toggleHomeTarget, validateExtraName, weekExtrasFor } from './shoppingLogic';
 
 function emptyDays(): Record<IsoDay, string | null> {
@@ -14,7 +15,7 @@ function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
 }
 
 function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Recipe {
-  return {
+  return makeRecipe({
     ingredients: [],
     category: 'jine',
     effort: 'normal',
@@ -22,7 +23,7 @@ function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Reci
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
-  };
+  });
 }
 
 function shoppingItem(overrides: Partial<ShoppingItem> = {}): ShoppingItem {
