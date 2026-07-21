@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Plans, WeekPlan } from '../types';
+import { dinnerWeek } from '../testing/fixtures';
 import { isInRotationWindow, lastCookedWeek, weeksSinceCooked } from './rotation';
 
-function planWith(recipeId: string | null): WeekPlan {
-  return {
-    days: { mon: recipeId, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null },
-  };
+function planWith(recipeId: string): WeekPlan {
+  return dinnerWeek({ mon: recipeId });
 }
 
 describe('lastCookedWeek', () => {

@@ -1,4 +1,5 @@
 import type { Plans, WeekKey } from '../types';
+import { weekRecipeIds } from './planModel';
 import { mondayOf } from './week';
 
 const MS_PER_WEEK = 7 * 24 * 60 * 60 * 1000;
@@ -15,7 +16,7 @@ export function lastCookedWeek(recipeId: string, plans: Plans, beforeWeek: WeekK
   for (const [week, plan] of Object.entries(plans)) {
     const ms = mondayOf(week).getTime();
     if (ms >= beforeMs) continue;
-    const cooked = Object.values(plan.days).some((id) => id === recipeId);
+    const cooked = weekRecipeIds(plan).includes(recipeId);
     if (!cooked) continue;
     if (best === null || ms > best.ms) {
       best = { week, ms };

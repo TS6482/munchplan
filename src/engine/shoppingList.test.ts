@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Ingredient, IsoDay, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
-import { makeRecipe } from '../testing/fixtures';
+import { dinnerWeek, makeRecipe } from '../testing/fixtures';
 import { buildShoppingList } from './shoppingList';
 
-function emptyDays(): Record<IsoDay, string | null> {
-  return { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
-}
-
 function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
-  return { days: { ...emptyDays(), ...days } };
+  const filtered: Partial<Record<IsoDay, string>> = {};
+  for (const [day, id] of Object.entries(days)) {
+    if (id != null) filtered[day as IsoDay] = id;
+  }
+  return dinnerWeek(filtered);
 }
 
 function recipe(overrides: { id: string; name: string; ingredients: Ingredient[] }): Recipe {

@@ -53,6 +53,8 @@ export interface DayRow {
   day: IsoDay;
   dayLabel: string;
   date: string;
+  /** Id of the day's first dinner-slot entry, if any — target for the ✕ remove action. */
+  entryId: string | null;
   recipeId: string | null;
   recipeName: string | null;
   deleted: boolean;
@@ -64,13 +66,18 @@ function czechDate(isoDate: string): string {
   return `${Number(day)}.${Number(month)}.`;
 }
 
-/** 7 Mon->Sun rows for `weekKey`, resolving each assigned recipeId to a name. */
+/**
+ * 7 Mon->Sun rows for `weekKey`, each rendering the dinner slot's first entry
+ * (interim wiring pinned by step 3's plan — the meal detail page in step 9
+ * shows every entry of every slot; this row stays a one-line summary).
+ */
 export function dayRows(weekKey: WeekKey, plans: Plans, recipes: Recipe[]): DayRow[] {
   const plan = plans[weekKey];
   const byId = new Map(recipes.map((r) => [r.id, r]));
 
   return ISO_DAYS.map((day) => {
-    const recipeId = plan?.days[day] ?? null;
+    const entry = plan?.days[day]?.dinner[0];
+    const recipeId = entry?.recipeIds[0] ?? null;
     let recipeName: string | null = null;
     let deleted = false;
 
@@ -88,6 +95,7 @@ export function dayRows(weekKey: WeekKey, plans: Plans, recipes: Recipe[]): DayR
       day,
       dayLabel: DAY_LABELS[day],
       date: czechDate(dateOfDay(weekKey, day)),
+      entryId: entry?.id ?? null,
       recipeId,
       recipeName,
       deleted,

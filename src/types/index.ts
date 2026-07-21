@@ -66,8 +66,24 @@ export type IsoDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 /** ISO-8601 week string, e.g. "2026-W30". */
 export type WeekKey = string;
 
+/**
+ * A single planned meal. This feature's UI always creates entries with
+ * exactly one `recipeIds` element; the array is reserved for feature 003
+ * (mix-and-match, multiple recipes composed into one meal).
+ */
+export interface MealEntry {
+  id: string;
+  recipeIds: string[];
+  source: 'auto' | 'manual';
+}
+
+/** A day's meal entries, one list per slot (a slot may hold 0, 1, or several entries). */
+export type DayPlan = Record<MealSlotKey, MealEntry[]>;
+
 export interface WeekPlan {
-  days: Record<IsoDay, string | null>;
+  /** Which slots render on the plan screen for this week; single source of truth (see planModel.ts). */
+  activeSlots: MealSlotKey[];
+  days: Record<IsoDay, DayPlan>;
 }
 
 export type Plans = Record<WeekKey, WeekPlan>;

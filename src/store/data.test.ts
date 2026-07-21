@@ -429,6 +429,63 @@ describe('convenience actions', () => {
     expect(savedPath).toBe('recipes.json');
   });
 
+  it('activateSlot wraps mutate("plans", ops.activateSlot(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().activateSlot('2026-W30', 'breakfast');
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({ type: 'activateSlot', week: '2026-W30', slot: 'breakfast' });
+  });
+
+  it('deactivateSlot wraps mutate("plans", ops.deactivateSlot(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().deactivateSlot('2026-W30', 'dinner');
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({ type: 'deactivateSlot', week: '2026-W30', slot: 'dinner' });
+  });
+
+  it('addMealEntry wraps mutate("plans", ops.addMealEntry(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    const entry = { id: 'e1', recipeIds: ['r1'], source: 'manual' as const };
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().addMealEntry('2026-W30', 'mon', 'dinner', entry);
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({ type: 'addMealEntry', week: '2026-W30', day: 'mon', slot: 'dinner', entry });
+  });
+
+  it('removeMealEntry wraps mutate("plans", ops.removeMealEntry(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().removeMealEntry('2026-W30', 'mon', 'dinner', 'e1');
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({ type: 'removeMealEntry', week: '2026-W30', day: 'mon', slot: 'dinner', entryId: 'e1' });
+  });
+
+  it('replaceAutoEntries wraps mutate("plans", ops.replaceAutoEntries(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    const placements = [{ day: 'mon' as const, slot: 'dinner' as const, entries: [] }];
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().replaceAutoEntries('2026-W30', placements);
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({ type: 'replaceAutoEntries', week: '2026-W30', placements });
+  });
+
   it('setCheck wraps mutate("extras", setCheck(...))', async () => {
     useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, extras: { data: { weeks: {} }, sha: 'e-sha' } } });
     const checkedExtras = { weeks: { '2026-W30': { checks: { 'mouka|g': true as const }, extraItems: [], homeOverrides: {} } } };

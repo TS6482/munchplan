@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { IsoDay, Plans, Recipe, SaleItem, Settings, WeekPlan } from '../types';
-import { makeRecipe } from '../testing/fixtures';
+import { dinnerWeek, makeRecipe } from '../testing/fixtures';
 import { rankSuggestions, warningsFor } from './suggest';
 
 const TARGET: string = '2026-W30';
 
-function emptyDays(): Record<IsoDay, string | null> {
-  return { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
-}
-
 function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
-  return { days: { ...emptyDays(), ...days } };
+  const filtered: Partial<Record<IsoDay, string>> = {};
+  for (const [day, id] of Object.entries(days)) {
+    if (id != null) filtered[day as IsoDay] = id;
+  }
+  return dinnerWeek(filtered);
 }
 
 function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Recipe {

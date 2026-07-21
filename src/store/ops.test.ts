@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { Extras, Pantry, Plans, Recipe, SaleItem, Settings, WeekExtras } from '../types';
+import type { Extras, Pantry, Plans, Recipe, SaleItem, Settings, WeekExtras, WeekPlan } from '../types';
 import { makeRecipe } from '../testing/fixtures';
+import { emptyWeekPlan } from '../engine/planModel';
 import {
+  activateSlot,
   addExtraItem,
+  addMealEntry,
   addPantryItem,
   applyExtrasOp,
   applyPantryOp,
@@ -10,12 +13,15 @@ import {
   applyRecipesOp,
   applySalesOp,
   applySettingsOp,
-  assignDay,
   clearSales,
+  deactivateSlot,
   deleteRecipe,
   normalizePantry,
+  normalizePlans,
   normalizeRecipes,
+  removeMealEntry,
   removePantryItem,
+  replaceAutoEntries,
   setBlockedList,
   setCheck,
   setPersonName,
@@ -245,29 +251,316 @@ describe('normalizeRecipes', () => {
   });
 });
 
-describe('plans ops', () => {
-  it('assignDay applied to remote with a different day/week changed: both survive', () => {
-    const remote: Plans = {
-      '2026-W30': { days: { mon: null, tue: 'r9', wed: null, thu: null, fri: null, sat: null, sun: null } },
+describe('normalizePlans', () => {
+  it('old-shape week: each non-null day becomes a manual dinner entry with a deterministic legacy id', () => {
+    const raw = {
+      '2026-W30': { days: { mon: 'r1', tue: null, wed: 'r2', thu: null, fri: null, sat: null, sun: null } },
     };
-    const result = applyPlansOp(assignDay('2026-W30', 'mon', 'r1'), remote);
-    expect(result['2026-W30'].days.mon).toBe('r1');
-    expect(result['2026-W30'].days.tue).toBe('r9');
+    const result = normalizePlans(raw);
+    const week = result['2026-W30'];
+    expect(week.activeSlots).toEqual(['dinner']);
+    expect(week.days.mon.dinner).toEqual([{ id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' }]);
+    expect(week.days.wed.dinner).toEqual([{ id: 'legacy-2026-W30-wed', recipeIds: ['r2'], source: 'manual' }]);
+    expect(week.days.tue.dinner).toEqual([]);
+    expect(week.days.mon.breakfast).toEqual([]);
+    expect(week.days.mon.lunch).toEqual([]);
+    expect(week.days.mon.snack).toEqual([]);
   });
 
-  it('creates a fresh week entry when assigning into a week the remote does not have', () => {
-    const remote: Plans = {};
-    const result = applyPlansOp(assignDay('2026-W31', 'wed', 'r5'), remote);
-    expect(result['2026-W31'].days.wed).toBe('r5');
-    expect(result['2026-W31'].days.mon).toBeNull();
+  it('already-new-shape week passes through unchanged', () => {
+    const week: WeekPlan = emptyWeekPlan(['lunch', 'dinner']);
+    week.days.mon.lunch = [{ id: 'e1', recipeIds: ['r1'], source: 'manual' }];
+    const result = normalizePlans({ '2026-W30': week });
+    expect(result['2026-W30']).toEqual(week);
+  });
+
+  it('missing activeSlots on an object week derives the union of slots-with-entries', () => {
+    const raw = {
+      '2026-W30': {
+        days: {
+          mon: { breakfast: [{ id: 'e1', recipeIds: ['r1'], source: 'manual' }], lunch: [], dinner: [], snack: [] },
+          tue: { breakfast: [], lunch: [], dinner: [{ id: 'e2', recipeIds: ['r2'], source: 'auto' }], snack: [] },
+          wed: null,
+          thu: null,
+          fri: null,
+          sat: null,
+          sun: null,
+        },
+      },
+    };
+    expect(normalizePlans(raw)['2026-W30'].activeSlots).toEqual(['breakfast', 'dinner']);
+  });
+
+  it('mixed week (object days + one string day, as an old device would write post-migration) normalizes per day', () => {
+    const raw = {
+      '2026-W30': {
+        activeSlots: ['lunch'],
+        days: {
+          mon: { breakfast: [], lunch: [{ id: 'e1', recipeIds: ['r1'], source: 'manual' }], dinner: [], snack: [] },
+          tue: 'r-legacy',
+          wed: null,
+          thu: null,
+          fri: null,
+          sat: null,
+          sun: null,
+        },
+      },
+    };
+    const result = normalizePlans(raw);
+    expect(result['2026-W30'].days.mon.lunch).toEqual([{ id: 'e1', recipeIds: ['r1'], source: 'manual' }]);
+    expect(result['2026-W30'].days.tue.dinner).toEqual([
+      { id: 'legacy-2026-W30-tue', recipeIds: ['r-legacy'], source: 'manual' },
+    ]);
+    // Stored activeSlots is respected verbatim when non-empty/valid, not re-derived.
+    expect(result['2026-W30'].activeSlots).toEqual(['lunch']);
+  });
+
+  it('drops malformed entries (bad id/recipeIds/source types, non-object entries)', () => {
+    const raw = {
+      '2026-W30': {
+        activeSlots: ['dinner'],
+        days: {
+          mon: {
+            breakfast: [],
+            lunch: [],
+            dinner: [
+              { id: 'ok', recipeIds: ['r1'], source: 'manual' },
+              { id: 'bad-source', recipeIds: ['r1'], source: 'nonsense' },
+              { id: 123, recipeIds: ['r1'], source: 'manual' },
+              { id: 'bad-ids', recipeIds: ['r1', 5], source: 'manual' },
+              'not-an-object',
+            ],
+            snack: [],
+          },
+          tue: null,
+          wed: null,
+          thu: null,
+          fri: null,
+          sat: null,
+          sun: null,
+        },
+      },
+    };
+    expect(normalizePlans(raw)['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'ok', recipeIds: ['r1'], source: 'manual' },
+    ]);
+  });
+
+  it('an explicitly stored empty activeSlots passes through (valid "away week", decision 6)', () => {
+    const week = emptyWeekPlan([]);
+    expect(normalizePlans({ '2026-W30': week })['2026-W30'].activeSlots).toEqual([]);
+  });
+
+  it('non-object input returns {}', () => {
+    expect(normalizePlans(null)).toEqual({});
+    expect(normalizePlans(undefined)).toEqual({});
+    expect(normalizePlans([1, 2])).toEqual({});
+    expect(normalizePlans('garbage')).toEqual({});
+  });
+});
+
+describe('activateSlot / deactivateSlot', () => {
+  it('activateSlot adds the slot to activeSlots, creating the week if missing', () => {
+    const result = applyPlansOp(activateSlot('2026-W30', 'breakfast'), {});
+    expect(result['2026-W30'].activeSlots).toEqual(['breakfast']);
+  });
+
+  it('activateSlot is idempotent and keeps SLOT_ORDER regardless of call order', () => {
+    let plans: Plans = applyPlansOp(activateSlot('2026-W30', 'snack'), {});
+    plans = applyPlansOp(activateSlot('2026-W30', 'dinner'), plans);
+    plans = applyPlansOp(activateSlot('2026-W30', 'dinner'), plans); // repeat, must not duplicate
+    expect(plans['2026-W30'].activeSlots).toEqual(['dinner', 'snack']);
+  });
+
+  it('concurrent activateSlot of DIFFERENT slots both survive sequential (re-)application', () => {
+    const remoteAfterA: Plans = { '2026-W30': emptyWeekPlan(['lunch']) };
+    const result = applyPlansOp(activateSlot('2026-W30', 'breakfast'), remoteAfterA);
+    expect(result['2026-W30'].activeSlots).toEqual(['breakfast', 'lunch']);
+  });
+
+  it('deactivateSlot removes the slot from activeSlots and deletes its entries across all seven days', () => {
+    let plans: Plans = { '2026-W30': emptyWeekPlan(['dinner', 'lunch']) };
+    plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      plans,
+    );
+    plans = applyPlansOp(
+      addMealEntry('2026-W30', 'wed', 'dinner', { id: 'e2', recipeIds: ['r2'], source: 'manual' }),
+      plans,
+    );
+    const result = applyPlansOp(deactivateSlot('2026-W30', 'dinner'), plans);
+    expect(result['2026-W30'].activeSlots).toEqual(['lunch']);
+    expect(result['2026-W30'].days.mon.dinner).toEqual([]);
+    expect(result['2026-W30'].days.wed.dinner).toEqual([]);
+  });
+
+  it('deactivateSlot re-applied on a remote that concurrently gained an entry: the deletion still sticks', () => {
+    const plans: Plans = { '2026-W30': emptyWeekPlan(['dinner']) };
+    const remoteWithNewEntry = applyPlansOp(
+      addMealEntry('2026-W30', 'tue', 'dinner', { id: 'e2', recipeIds: ['r2'], source: 'manual' }),
+      plans,
+    );
+    const reapplied = applyPlansOp(deactivateSlot('2026-W30', 'dinner'), remoteWithNewEntry);
+    expect(reapplied['2026-W30'].days.tue.dinner).toEqual([]);
+    expect(reapplied['2026-W30'].activeSlots).toEqual([]);
+  });
+
+  it('concurrent toggles of DIFFERENT slots (activate one, deactivate another) both survive sequential application', () => {
+    let plans: Plans = { '2026-W30': emptyWeekPlan(['dinner', 'lunch']) };
+    plans = applyPlansOp(activateSlot('2026-W30', 'breakfast'), plans);
+    plans = applyPlansOp(deactivateSlot('2026-W30', 'lunch'), plans);
+    expect(plans['2026-W30'].activeSlots).toEqual(['breakfast', 'dinner']);
+  });
+
+  it('deactivateSlot on a week that does not exist is a no-op, never throws', () => {
+    expect(applyPlansOp(deactivateSlot('2026-W30', 'dinner'), {})).toEqual({});
+  });
+});
+
+describe('addMealEntry / removeMealEntry', () => {
+  it('appends an entry to an empty slot, creating the week with activeSlots [slot]', () => {
+    const result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'lunch', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
+    expect(result['2026-W30'].activeSlots).toEqual(['lunch']);
+    expect(result['2026-W30'].days.mon.lunch).toEqual([{ id: 'e1', recipeIds: ['r1'], source: 'manual' }]);
+  });
+
+  it('concurrent addMealEntry on the SAME slot: both entries kept (a slot is a list)', () => {
+    const remote: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e-remote', recipeIds: ['r2'], source: 'manual' }),
+      {},
+    );
+    const result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e-local', recipeIds: ['r1'], source: 'manual' }),
+      remote,
+    );
+    expect(result['2026-W30'].days.mon.dinner.map((e) => e.id)).toEqual(['e-remote', 'e-local']);
+  });
+
+  it('re-applying addMealEntry with the SAME id twice is idempotent (replaces in place, no duplicate)', () => {
+    let plans: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
+    plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      plans,
+    );
+    expect(plans['2026-W30'].days.mon.dinner).toEqual([{ id: 'e1', recipeIds: ['r1'], source: 'manual' }]);
+  });
+
+  it('removeMealEntry filters by id and sticks against a remote that meanwhile re-added other entries', () => {
+    let plans: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
+    plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e2', recipeIds: ['r2'], source: 'manual' }),
+      plans,
+    );
+    const remoteWithThird = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e3', recipeIds: ['r3'], source: 'manual' }),
+      plans,
+    );
+    const result = applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'e1'), remoteWithThird);
+    expect(result['2026-W30'].days.mon.dinner.map((e) => e.id)).toEqual(['e2', 'e3']);
+  });
+
+  it('removeMealEntry re-applied on a remote lacking the id is a no-op (no resurrection)', () => {
+    const plans: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
+    const result = applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'already-gone'), plans);
+    expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'e1', recipeIds: ['r1'], source: 'manual' }]);
+  });
+
+  it('removeMealEntry against a missing week is a no-op, never throws', () => {
+    expect(applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'e1'), {})).toEqual({});
   });
 
   it('does not mutate the input object', () => {
-    const remote: Plans = {
-      '2026-W30': { days: { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null } },
-    };
+    const remote: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
     const frozen = JSON.parse(JSON.stringify(remote)) as Plans;
-    applyPlansOp(assignDay('2026-W30', 'mon', 'r1'), remote);
+    applyPlansOp(addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e2', recipeIds: ['r2'], source: 'manual' }), remote);
+    applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'e1'), remote);
+    expect(remote).toEqual(frozen);
+  });
+});
+
+describe('replaceAutoEntries', () => {
+  it('preserves remote manual entries and replaces remote auto entries in targeted slots', () => {
+    let plans: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'manual-1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
+    plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'auto-old', recipeIds: ['r9'], source: 'auto' }),
+      plans,
+    );
+    const result = applyPlansOp(
+      replaceAutoEntries('2026-W30', [
+        { day: 'mon', slot: 'dinner', entries: [{ id: 'auto-new', recipeIds: ['r2'], source: 'auto' }] },
+      ]),
+      plans,
+    );
+    expect(result['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'manual-1', recipeIds: ['r1'], source: 'manual' },
+      { id: 'auto-new', recipeIds: ['r2'], source: 'auto' },
+    ]);
+  });
+
+  it('entries: [] clears stale autos in a targeted slot', () => {
+    const plans: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'auto-old', recipeIds: ['r9'], source: 'auto' }),
+      {},
+    );
+    const result = applyPlansOp(replaceAutoEntries('2026-W30', [{ day: 'mon', slot: 'dinner', entries: [] }]), plans);
+    expect(result['2026-W30'].days.mon.dinner).toEqual([]);
+  });
+
+  it('creates a missing week with activeSlots = union of targeted slots (SLOT_ORDER-sorted)', () => {
+    const result = applyPlansOp(
+      replaceAutoEntries('2026-W30', [
+        { day: 'mon', slot: 'snack', entries: [{ id: 'a1', recipeIds: ['r1'], source: 'auto' }] },
+        { day: 'tue', slot: 'breakfast', entries: [{ id: 'a2', recipeIds: ['r2'], source: 'auto' }] },
+      ]),
+      {},
+    );
+    expect(result['2026-W30'].activeSlots).toEqual(['breakfast', 'snack']);
+  });
+
+  it('applyPlansOp on a raw old-shape remote normalizes before applying', () => {
+    const legacyRemote = {
+      '2026-W30': { days: { mon: 'r1', tue: null, wed: null, thu: null, fri: null, sat: null, sun: null } },
+    } as unknown as Plans;
+    const result = applyPlansOp(
+      addMealEntry('2026-W30', 'wed', 'lunch', { id: 'e1', recipeIds: ['r2'], source: 'manual' }),
+      legacyRemote,
+    );
+    expect(result['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' },
+    ]);
+    expect(result['2026-W30'].days.wed.lunch).toEqual([{ id: 'e1', recipeIds: ['r2'], source: 'manual' }]);
+  });
+
+  it('does not mutate the input object', () => {
+    const remote: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'manual-1', recipeIds: ['r1'], source: 'manual' }),
+      {},
+    );
+    const frozen = JSON.parse(JSON.stringify(remote)) as Plans;
+    applyPlansOp(
+      replaceAutoEntries('2026-W30', [
+        { day: 'mon', slot: 'dinner', entries: [{ id: 'a1', recipeIds: ['r9'], source: 'auto' }] },
+      ]),
+      remote,
+    );
     expect(remote).toEqual(frozen);
   });
 });

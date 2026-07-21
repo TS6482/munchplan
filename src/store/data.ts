@@ -35,9 +35,21 @@
 
 import { create } from 'zustand';
 import { AuthError, ConflictError, NetworkError, getFile, probeRepo, saveWithRetry, type GithubConfig } from '../api/github';
-import type { Extras, ExtraItem, IsoDay, ItemKey, Pantry, Recipe, SaleItem, Settings, WeekKey } from '../types';
+import type {
+  Extras,
+  ExtraItem,
+  IsoDay,
+  ItemKey,
+  MealEntry,
+  MealSlotKey,
+  Pantry,
+  Recipe,
+  SaleItem,
+  Settings,
+  WeekKey,
+} from '../types';
 import * as ops from './ops';
-import type { FileDataMap, FileKey, FileOpMap } from './ops';
+import type { FileDataMap, FileKey, FileOpMap, MealPlacement } from './ops';
 import { DEFAULT_PANTRY } from './seed';
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'authError' | 'error';
@@ -81,7 +93,12 @@ const FILES: Record<FileKey, AnyFileEntry> = {
     apply: ops.applyRecipesOp as AnyFileEntry['apply'],
     normalize: ops.normalizeRecipes as AnyFileEntry['normalize'],
   },
-  plans: { path: 'plans.json', emptyData: {}, apply: ops.applyPlansOp as AnyFileEntry['apply'] },
+  plans: {
+    path: 'plans.json',
+    emptyData: {},
+    apply: ops.applyPlansOp as AnyFileEntry['apply'],
+    normalize: ops.normalizePlans as AnyFileEntry['normalize'],
+  },
   pantry: {
     path: 'pantry.json',
     emptyData: [] as Pantry,
@@ -145,7 +162,11 @@ export interface DataState {
 
   addRecipe: (recipe: Recipe) => Promise<void>;
   removeRecipe: (id: string) => Promise<void>;
-  assignDay: (week: WeekKey, day: IsoDay, recipeId: string | null) => Promise<void>;
+  activateSlot: (week: WeekKey, slot: MealSlotKey) => Promise<void>;
+  deactivateSlot: (week: WeekKey, slot: MealSlotKey) => Promise<void>;
+  addMealEntry: (week: WeekKey, day: IsoDay, slot: MealSlotKey, entry: MealEntry) => Promise<void>;
+  removeMealEntry: (week: WeekKey, day: IsoDay, slot: MealSlotKey, entryId: string) => Promise<void>;
+  replaceAutoEntries: (week: WeekKey, placements: MealPlacement[]) => Promise<void>;
   addPantryItem: (name: string, amount?: number, unit?: string) => Promise<void>;
   removePantryItem: (name: string) => Promise<void>;
   upsertSaleItem: (name: string, note?: string) => Promise<void>;
@@ -314,7 +335,11 @@ export const useDataStore = create<DataState>()((set, get) => {
 
     addRecipe: (recipe) => mutate('recipes', ops.upsertRecipe(recipe)),
     removeRecipe: (id) => mutate('recipes', ops.deleteRecipe(id)),
-    assignDay: (week, day, recipeId) => mutate('plans', ops.assignDay(week, day, recipeId)),
+    activateSlot: (week, slot) => mutate('plans', ops.activateSlot(week, slot)),
+    deactivateSlot: (week, slot) => mutate('plans', ops.deactivateSlot(week, slot)),
+    addMealEntry: (week, day, slot, entry) => mutate('plans', ops.addMealEntry(week, day, slot, entry)),
+    removeMealEntry: (week, day, slot, entryId) => mutate('plans', ops.removeMealEntry(week, day, slot, entryId)),
+    replaceAutoEntries: (week, placements) => mutate('plans', ops.replaceAutoEntries(week, placements)),
     addPantryItem: (name, amount, unit) => mutate('pantry', ops.addPantryItem(name, amount, unit)),
     removePantryItem: (name) => mutate('pantry', ops.removePantryItem(name)),
     upsertSaleItem: (name, note) => mutate('sales', ops.upsertSaleItem(name, note)),

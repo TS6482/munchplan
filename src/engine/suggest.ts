@@ -1,6 +1,7 @@
 import type { Plans, Recipe, RecipeCategory, SaleItem, Settings, WeekKey } from '../types';
 import { blockedMatch, saleMatch } from './match';
 import { normalizeName } from './normalize';
+import { weekRecipeIds } from './planModel';
 import { unmetMinCategories, wouldExceedMax } from './quota';
 import { isInRotationWindow, weeksSinceCooked } from './rotation';
 
@@ -26,23 +27,27 @@ export type Warning =
   | { kind: 'maxExceeded'; category: RecipeCategory }
   | { kind: 'rotation'; weeksSinceCooked: number };
 
-/** Categories of recipes currently assigned to any day of `targetWeek`. Unknown recipeIds are skipped. */
+/**
+ * Categories of recipes currently assigned to any slot of any day of
+ * `targetWeek`. Duplicates count multiple times (a multi-recipe entry
+ * contributes each recipe's category; the same recipe in two slots counts
+ * twice). Unknown recipeIds are skipped.
+ */
 export function plannedCategories(recipes: Recipe[], plans: Plans, targetWeek: WeekKey): RecipeCategory[] {
   const plan = plans[targetWeek];
   if (!plan) return [];
   const byId = new Map(recipes.map((r) => [r.id, r]));
-  return Object.values(plan.days)
-    .filter((id): id is string => id != null)
+  return weekRecipeIds(plan)
     .map((id) => byId.get(id))
     .filter((r): r is Recipe => r != null)
     .map((r) => r.category);
 }
 
-/** recipeIds already assigned to any day of `targetWeek`. */
+/** recipeIds already assigned to any slot of any day of `targetWeek` (deduped). */
 function assignedRecipeIds(plans: Plans, targetWeek: WeekKey): Set<string> {
   const plan = plans[targetWeek];
   if (!plan) return new Set();
-  return new Set(Object.values(plan.days).filter((id): id is string => id != null));
+  return new Set(weekRecipeIds(plan));
 }
 
 /** The recipe's ingredient names blocked for `person` (empty if none). */

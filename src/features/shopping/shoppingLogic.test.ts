@@ -3,15 +3,15 @@ import type { GithubConfig } from '../../api/github';
 import { itemKey } from '../../engine/match';
 import type { ShoppingItem } from '../../engine/shoppingList';
 import type { Extras, IsoDay, Plans, Recipe, WeekPlan } from '../../types';
-import { makeRecipe } from '../../testing/fixtures';
+import { dinnerWeek, makeRecipe } from '../../testing/fixtures';
 import { itemAmountText, newExtraItem, shoppingView, toggleHomeTarget, validateExtraName, weekExtrasFor } from './shoppingLogic';
 
-function emptyDays(): Record<IsoDay, string | null> {
-  return { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
-}
-
 function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
-  return { days: { ...emptyDays(), ...days } };
+  const filtered: Partial<Record<IsoDay, string>> = {};
+  for (const [day, id] of Object.entries(days)) {
+    if (id != null) filtered[day as IsoDay] = id;
+  }
+  return dinnerWeek(filtered);
 }
 
 function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Recipe {
@@ -224,8 +224,8 @@ describe('store integration: per-week checks persist and scope correctly (AC8)',
 
     const flour: Recipe = recipe({ id: 'r1', name: 'Chlebíčky', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
     await useDataStore.getState().addRecipe(flour);
-    await useDataStore.getState().assignDay('2026-W30', 'mon', 'r1');
-    await useDataStore.getState().assignDay('2026-W31', 'mon', 'r1');
+    await useDataStore.getState().addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' });
+    await useDataStore.getState().addMealEntry('2026-W31', 'mon', 'dinner', { id: 'e2', recipeIds: ['r1'], source: 'manual' });
 
     const key = itemKey('mouka', 'g');
     await useDataStore.getState().setCheck('2026-W30', key, true);

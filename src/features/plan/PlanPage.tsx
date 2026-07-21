@@ -13,7 +13,8 @@ function PlanPage() {
   const plans = useDataStore((s) => s.files.plans.data);
   const sales = useDataStore((s) => s.files.sales.data);
   const settings = useDataStore((s) => s.files.settings.data);
-  const assignDay = useDataStore((s) => s.assignDay);
+  const addMealEntry = useDataStore((s) => s.addMealEntry);
+  const removeMealEntry = useDataStore((s) => s.removeMealEntry);
 
   const choices = useMemo(() => weekChoices(new Date()), []);
   const [weekKey, setWeekKey] = useState(choices[1].key); // default: příští týden
@@ -27,13 +28,19 @@ function PlanPage() {
   const suggestionsInput: RankSuggestionsInput = { recipes, plans, sales, settings, targetWeek: weekKey };
   const suggestions = getSuggestions(suggestionsInput);
 
+  // Interim wiring (feature 002 step 3): manual assigns always target the dinner
+  // slot until the meal detail page (step 9) supersedes this direct-assign flow.
+  function assignDinner(day: IsoDay, recipeId: string) {
+    void addMealEntry(weekKey, day, 'dinner', { id: crypto.randomUUID(), recipeIds: [recipeId], source: 'manual' });
+  }
+
   function handleAssignSuggestion(recipeId: string) {
     const firstEmpty = rows.find((r) => r.recipeId === null);
     if (!firstEmpty) {
       window.alert('Týden je plný');
       return;
     }
-    void assignDay(weekKey, firstEmpty.day, recipeId);
+    assignDinner(firstEmpty.day, recipeId);
   }
 
   return (
@@ -79,7 +86,7 @@ function PlanPage() {
                 <button
                   type="button"
                   className={styles.clearButton}
-                  onClick={() => void assignDay(weekKey, row.day, null)}
+                  onClick={() => row.entryId && void removeMealEntry(weekKey, row.day, 'dinner', row.entryId)}
                   aria-label={`Odebrat ${row.dayLabel}`}
                 >
                   ✕
@@ -96,7 +103,7 @@ function PlanPage() {
         <RecipePicker
           input={suggestionsInput}
           onSelect={(recipeId) => {
-            void assignDay(weekKey, pickerDay, recipeId);
+            assignDinner(pickerDay, recipeId);
             setPickerDay(null);
           }}
           onCancel={() => setPickerDay(null)}
