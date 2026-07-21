@@ -7,7 +7,7 @@
 .content {
   flex: 1;
   padding: var(--space-4);
-  padding-bottom: calc(var(--space-8) * 2 + var(--space-2));
+  padding-bottom: calc(var(--space-8) * 2 + var(--space-2) * 2);
 }
 
 .gateHint {
@@ -22,9 +22,22 @@
   right: 0;
   bottom: 0;
   display: flex;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--space-2));
+  border-radius: 0;
+  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + var(--space-2)), var(--space-4));
+}
+
+/* Higher specificity than the shared .glass border shorthand (global.css),
+   so only the top hairline survives — no side/bottom border on a bar
+   pinned to the viewport edges. */
+.tabBar:global(.glass) {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  .tabBar:global(.glass) {
+    border-top-color: rgba(255, 255, 255, 0.25);
+  }
 }
 
 .tab {

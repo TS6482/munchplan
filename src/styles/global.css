@@ -85,3 +85,50 @@ body {
   color: var(--color-text);
   cursor: pointer;
 }
+
+/*
+ * Apple "liquid glass" treatment for floating chrome (bars, overlays, menus).
+ * Content cards/lists/forms stay solid surfaces per iOS convention — this
+ * utility is only for elements that float above scrolling content.
+ */
+.glass {
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  backdrop-filter: blur(18px) saturate(180%);
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  .glass {
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+}
+
+.segmented {
+  display: inline-flex;
+  width: 100%;
+  gap: var(--space-1);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  border-radius: 10px;
+  padding: 2px;
+}
+
+.segment {
+  flex: 1;
+  min-height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  color: var(--color-text);
+}
