@@ -6,7 +6,7 @@ import { buildShoppingList } from './shoppingList';
 
 /** A single manual entry with multiple recipeIds in one (day, slot) — weekPlanWith only builds single-recipe entries, so multi-recipe fixtures are assembled directly here. */
 function multiRecipeEntryWeek(day: IsoDay, slot: MealSlotKey, recipeIds: string[]): WeekPlan {
-  const base = emptyWeekPlan([slot]);
+  const base = emptyWeekPlan();
   return {
     ...base,
     days: {

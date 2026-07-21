@@ -1,20 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useDataStore } from '../../store/data';
 import type { IsoDay, MealSlotKey, WeekKey } from '../../types';
-import { SLOT_ORDER } from '../../types';
 import { plannedCategories } from '../../engine/suggest';
-import { SLOT_LABELS } from '../../components/slotLabels';
-import {
-  dayCards,
-  defaultActiveSlots,
-  hasAutoEntries,
-  quotaSummaryLine,
-  runAutoFill,
-  runWeekReroll,
-  seedOpsForUnstoredWeek,
-  toggleSlotResult,
-  weekChoices,
-} from './planLogic';
+import { dayCards, hasAutoEntries, quotaSummaryLine, runAutoFill, runWeekReroll, weekChoices } from './planLogic';
 import styles from './PlanPage.module.css';
 
 /** Transient "Žádný vhodný recept" hints, keyed by "day/slot" — never persisted. */
@@ -34,9 +22,8 @@ function PlanPage({ week }: PlanPageProps) {
   const plans = useDataStore((s) => s.files.plans.data);
   const sales = useDataStore((s) => s.files.sales.data);
   const settings = useDataStore((s) => s.files.settings.data);
-  const activateSlot = useDataStore((s) => s.activateSlot);
-  const deactivateSlot = useDataStore((s) => s.deactivateSlot);
   const replaceAutoEntries = useDataStore((s) => s.replaceAutoEntries);
+  const clearDaySlot = useDataStore((s) => s.clearDaySlot);
 
   const choices = useMemo(() => weekChoices(new Date()), []);
   // Mount-only seed: in-app flows (route push, back-navigation) always remount
@@ -47,66 +34,28 @@ function PlanPage({ week }: PlanPageProps) {
   const [hints, setHints] = useState<Hints>(new Set());
 
   const weekPlan = plans[weekKey];
-  const activeSlots = weekPlan ? weekPlan.activeSlots : defaultActiveSlots(plans, weekKey);
 
-  const cards = dayCards(weekKey, plans, recipes, activeSlots);
+  const cards = dayCards(weekKey, plans, recipes);
   const categoriesPlanned = plannedCategories(recipes, plans, weekKey);
   const summary = quotaSummaryLine(settings.dietRules, categoriesPlanned);
-  const showReroll = hasAutoEntries(weekPlan, activeSlots);
+  const showReroll = hasAutoEntries(weekPlan);
 
   function selectWeek(key: string) {
     setWeekKey(key);
     setHints(new Set());
   }
 
-  async function handleToggleSlot(slot: MealSlotKey) {
-    const result = toggleSlotResult(weekPlan, activeSlots, slot);
-    if (result.op === 'deactivate') {
-      if (result.needsConfirm && !window.confirm(result.confirmText)) return;
-
-      if (!weekPlan) {
-        // Unstored week: deactivateSlot is a no-op with nothing stored to
-        // remove the slot from — persisting the displayed defaults minus the
-        // tapped slot *is* the deactivation (decision 6 / MAJOR 3).
-        const ops = seedOpsForUnstoredWeek(plans, weekKey).filter((op) => op.slot !== slot);
-        for (const op of ops) await activateSlot(op.week, op.slot);
-        return;
-      }
-      await deactivateSlot(weekKey, slot);
-      return;
-    }
-
-    // Activate: first touch on a not-yet-stored week persists the inherited
-    // defaults before the toggled slot (decision 6), so future auto-fills and
-    // reloads see the same activeSlots the chips already showed.
-    for (const op of seedOpsForUnstoredWeek(plans, weekKey)) {
-      await activateSlot(op.week, op.slot);
-    }
-    await activateSlot(weekKey, slot);
-  }
-
   async function handleAutoFill() {
-    // Seed an unstored week's inherited defaults before the auto-fill op
-    // (decision 6 / MAJOR 2), so a slot with zero placements this pass still
-    // ends up in the persisted activeSlots instead of being dropped.
-    for (const op of seedOpsForUnstoredWeek(plans, weekKey)) {
-      await activateSlot(op.week, op.slot);
-    }
-
-    const result = runAutoFill(
-      { recipes, plans, sales, settings, week: weekKey, activeSlots },
-      Math.random,
-      () => crypto.randomUUID(),
+    const result = runAutoFill({ recipes, plans, sales, settings, week: weekKey }, Math.random, () =>
+      crypto.randomUUID(),
     );
     if (result.op) await replaceAutoEntries(result.op.week, result.op.placements);
     setHints(new Set(result.hints.map((t) => hintKey(t.day, t.slot))));
   }
 
   async function handleReroll() {
-    const result = runWeekReroll(
-      { recipes, plans, sales, settings, week: weekKey, activeSlots },
-      Math.random,
-      () => crypto.randomUUID(),
+    const result = runWeekReroll({ recipes, plans, sales, settings, week: weekKey }, Math.random, () =>
+      crypto.randomUUID(),
     );
     if (result.op) await replaceAutoEntries(result.op.week, result.op.placements);
     setHints(new Set(result.hints.map((t) => hintKey(t.day, t.slot))));
@@ -129,19 +78,6 @@ function PlanPage({ week }: PlanPageProps) {
         ))}
       </div>
 
-      <div className="segmented">
-        {SLOT_ORDER.map((slot) => (
-          <button
-            key={slot}
-            type="button"
-            className={activeSlots.includes(slot) ? 'segment segmentActive' : 'segment'}
-            onClick={() => void handleToggleSlot(slot)}
-          >
-            {SLOT_LABELS[slot]}
-          </button>
-        ))}
-      </div>
-
       {summary && <p className={styles.summary}>{summary}</p>}
 
       <div className={styles.days}>
@@ -154,26 +90,38 @@ function PlanPage({ week }: PlanPageProps) {
 
             <div className={styles.lines}>
               {card.lines.map((line) => (
-                <a key={line.slot} href={line.mealDetailHash} className={styles.line}>
-                  <span className={styles.slotLabel}>{line.slotLabel}</span>
-                  <span className={styles.lineContent}>
-                    {line.entries.length === 0 ? (
-                      <>
-                        <span className={styles.emptyText}>{line.emptyText}</span>
-                        {hints.has(hintKey(card.day, line.slot)) && (
-                          <span className={styles.hint}>Žádný vhodný recept</span>
-                        )}
-                      </>
-                    ) : (
-                      line.entries.map((entry) => (
-                        <span key={entry.entryId} className={styles.entryName}>
-                          {entry.displayName}
-                          {entry.untriedBadge && <span className={styles.badge}>nevyzkoušené</span>}
-                        </span>
-                      ))
-                    )}
-                  </span>
-                </a>
+                <div key={line.slot} className={styles.line}>
+                  <a href={line.mealDetailHash} className={styles.lineLink}>
+                    <span className={styles.slotLabel}>{line.slotLabel}</span>
+                    <span className={styles.lineContent}>
+                      {line.entries.length === 0 ? (
+                        <>
+                          <span className={styles.emptyText}>{line.emptyText}</span>
+                          {hints.has(hintKey(card.day, line.slot)) && (
+                            <span className={styles.hint}>Žádný vhodný recept</span>
+                          )}
+                        </>
+                      ) : (
+                        line.entries.map((entry) => (
+                          <span key={entry.entryId} className={styles.entryName}>
+                            {entry.displayName}
+                            {entry.untriedBadge && <span className={styles.badge}>nevyzkoušené</span>}
+                          </span>
+                        ))
+                      )}
+                    </span>
+                  </a>
+                  {line.hasEntries && (
+                    <button
+                      type="button"
+                      className={styles.clearButton}
+                      aria-label="Vymazat slot"
+                      onClick={() => void clearDaySlot(weekKey, card.day, line.slot)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>

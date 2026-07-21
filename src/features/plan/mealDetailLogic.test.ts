@@ -4,7 +4,6 @@ import type { MealEntry, Plans, Settings, WeekPlan } from '../../types';
 import { makeRecipe, weekPlanWith } from '../../testing/fixtures';
 import { emptyWeekPlan } from '../../engine/planModel';
 import { mealHeader, entryRows, newManualEntry, rerollSlot } from './mealDetailLogic';
-import { seedOpsForUnstoredWeek } from './planLogic';
 
 const WEEK = '2026-W30';
 
@@ -22,8 +21,7 @@ function settings(overrides?: Partial<Settings>): Settings {
 
 /** Builds a WeekPlan with the given entries placed directly into (day, slot) — supports multi-recipe entries, unlike the fixtures' single-recipeId helpers. */
 function planWithEntries(entries: { day: keyof WeekPlan['days']; slot: keyof WeekPlan['days']['mon']; entries: MealEntry[] }[]): WeekPlan {
-  const activeSlots = [...new Set(entries.map((e) => e.slot))];
-  const base = emptyWeekPlan(activeSlots.length > 0 ? activeSlots : ['dinner']);
+  const base = emptyWeekPlan();
   const days = { ...base.days };
   for (const e of entries) {
     days[e.day] = { ...days[e.day], [e.slot]: e.entries };
@@ -52,7 +50,7 @@ describe('entryRows', () => {
   });
 
   it('returns [] for an empty slot on a stored week', () => {
-    const plan = emptyWeekPlan(['dinner']);
+    const plan = emptyWeekPlan();
     expect(entryRows(plan, 'wed', 'dinner', [])).toEqual([]);
   });
 
@@ -154,7 +152,7 @@ describe('rerollSlot', () => {
       [WEEK]: weekPlanWith([{ day: 'wed', slot: 'dinner', recipeId: 'r1', source: 'auto', id: 'auto-1' }]),
     };
     const result = rerollSlot(
-      { recipes: [recipe], plans, sales: [], settings: settings(), week: WEEK, activeSlots: ['dinner'] },
+      { recipes: [recipe], plans, sales: [], settings: settings(), week: WEEK },
       'wed',
       'dinner',
       () => 0,
@@ -171,7 +169,7 @@ describe('rerollSlot', () => {
       [WEEK]: weekPlanWith([{ day: 'wed', slot: 'dinner', recipeId: 'r1', source: 'manual' }]),
     };
     const result = rerollSlot(
-      { recipes: [recipe], plans, sales: [], settings: settings(), week: WEEK, activeSlots: ['dinner'] },
+      { recipes: [recipe], plans, sales: [], settings: settings(), week: WEEK },
       'wed',
       'dinner',
       () => 0,
@@ -243,35 +241,5 @@ describe('store integration: addMealEntry/removeMealEntry round-trip', () => {
 
     await useDataStore.getState().removeMealEntry(WEEK, 'wed', 'lunch', 'e1');
     expect(useDataStore.getState().files.plans.data[WEEK].days.wed.lunch).toEqual([]);
-  });
-
-  // MAJOR 1: MealDetailPage.handleAdd on an unstored week must seed the
-  // inherited defaults *before* activating the tapped slot, so a tapped slot
-  // outside those defaults joins them instead of replacing them.
-  it('adding via the detail path on an unstored week seeds inherited defaults, then the tapped slot, then the entry', async () => {
-    await useDataStore.getState().loadAll(cfg);
-
-    // An earlier stored week gives WEEK its inherited defaults: ['lunch', 'dinner'].
-    await useDataStore.getState().activateSlot('2026-W29', 'lunch');
-    await useDataStore.getState().activateSlot('2026-W29', 'dinner');
-
-    const plansBeforeAdd = useDataStore.getState().files.plans.data;
-    const seeds = seedOpsForUnstoredWeek(plansBeforeAdd, WEEK);
-    expect(seeds).toEqual([
-      { type: 'activateSlot', week: WEEK, slot: 'lunch' },
-      { type: 'activateSlot', week: WEEK, slot: 'dinner' },
-    ]);
-
-    for (const seed of seeds) {
-      await useDataStore.getState().activateSlot(seed.week, seed.slot);
-    }
-    const seededSlots = seeds.map((s) => s.slot);
-    const tappedSlot = 'breakfast';
-    if (!seededSlots.includes(tappedSlot)) {
-      await useDataStore.getState().activateSlot(WEEK, tappedSlot);
-    }
-    await useDataStore.getState().addMealEntry(WEEK, 'wed', tappedSlot, { id: 'e9', recipeIds: ['r1'], source: 'manual' });
-
-    expect(useDataStore.getState().files.plans.data[WEEK].activeSlots).toEqual(['breakfast', 'lunch', 'dinner']);
   });
 });

@@ -162,11 +162,10 @@ export interface DataState {
 
   addRecipe: (recipe: Recipe) => Promise<void>;
   removeRecipe: (id: string) => Promise<void>;
-  activateSlot: (week: WeekKey, slot: MealSlotKey) => Promise<void>;
-  deactivateSlot: (week: WeekKey, slot: MealSlotKey) => Promise<void>;
   addMealEntry: (week: WeekKey, day: IsoDay, slot: MealSlotKey, entry: MealEntry) => Promise<void>;
   removeMealEntry: (week: WeekKey, day: IsoDay, slot: MealSlotKey, entryId: string) => Promise<void>;
   replaceAutoEntries: (week: WeekKey, placements: MealPlacement[]) => Promise<void>;
+  clearDaySlot: (week: WeekKey, day: IsoDay, slot: MealSlotKey) => Promise<void>;
   addPantryItem: (name: string, amount?: number, unit?: string) => Promise<void>;
   removePantryItem: (name: string) => Promise<void>;
   upsertSaleItem: (name: string, note?: string) => Promise<void>;
@@ -335,11 +334,10 @@ export const useDataStore = create<DataState>()((set, get) => {
 
     addRecipe: (recipe) => mutate('recipes', ops.upsertRecipe(recipe)),
     removeRecipe: (id) => mutate('recipes', ops.deleteRecipe(id)),
-    activateSlot: (week, slot) => mutate('plans', ops.activateSlot(week, slot)),
-    deactivateSlot: (week, slot) => mutate('plans', ops.deactivateSlot(week, slot)),
     addMealEntry: (week, day, slot, entry) => mutate('plans', ops.addMealEntry(week, day, slot, entry)),
     removeMealEntry: (week, day, slot, entryId) => mutate('plans', ops.removeMealEntry(week, day, slot, entryId)),
     replaceAutoEntries: (week, placements) => mutate('plans', ops.replaceAutoEntries(week, placements)),
+    clearDaySlot: (week, day, slot) => mutate('plans', ops.clearDaySlot(week, day, slot)),
     addPantryItem: (name, amount, unit) => mutate('pantry', ops.addPantryItem(name, amount, unit)),
     removePantryItem: (name) => mutate('pantry', ops.removePantryItem(name)),
     upsertSaleItem: (name, note) => mutate('sales', ops.upsertSaleItem(name, note)),

@@ -22,7 +22,6 @@ import { canBePlanned } from '../recipes/recipeFormLogic';
 import { SLOT_ACCUSATIVE, SLOT_LABELS } from '../../components/slotLabels';
 import { routeHash } from '../../router/router';
 import { entryRows } from './mealDetailLogic';
-import { activateSlot, type PlansOp } from '../../store/ops';
 
 // ---------------------------------------------------------------------------
 // Week toggle
@@ -62,20 +61,17 @@ export function czechDate(isoDate: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Slot activation (step 10)
+// Auto-fill targets from last week's per-weekday pattern (feature 003)
 // ---------------------------------------------------------------------------
 
 /**
- * Which slots render for `week`: the stored week's `activeSlots` wins
- * (including an explicitly stored empty array — a "we're away" week is
- * valid); otherwise the nearest *earlier* stored week's `activeSlots`
+ * Fill targets = the per-weekday pattern of the nearest *earlier* stored week
  * (compared via `mondayOf`, never string sort, so year boundaries compare
- * correctly); otherwise `['dinner']` (first-ever-week default).
+ * correctly): for each weekday, the slots that held >=1 entry on that same
+ * weekday in the pattern week. No earlier week -> večeře on every day.
+ * Result is day-major/`SLOT_ORDER`-ordered.
  */
-export function defaultActiveSlots(plans: Plans, week: WeekKey): MealSlotKey[] {
-  const stored = plans[week];
-  if (stored) return stored.activeSlots;
-
+export function weekdayPatternTargets(plans: Plans, week: WeekKey): AutoFillTarget[] {
   const targetMonday = mondayOf(week).getTime();
   let nearestKey: WeekKey | null = null;
   let nearestMonday = -Infinity;
@@ -88,58 +84,18 @@ export function defaultActiveSlots(plans: Plans, week: WeekKey): MealSlotKey[] {
     }
   }
 
-  return nearestKey ? plans[nearestKey].activeSlots : ['dinner'];
-}
-
-/**
- * The `activateSlot` ops that persist a not-yet-stored week's inherited
- * defaults (decision 6) — `[]` once `week` is stored, since its `activeSlots`
- * is then the source of truth and needs no seeding. Every first-interaction
- * path (toggling a chip, adding a meal from the detail page, running
- * auto-fill) must issue these before its own op, so the displayed defaults
- * become the persisted `activeSlots` instead of silently reverting on
- * reload.
- */
-export function seedOpsForUnstoredWeek(plans: Plans, week: WeekKey): Extract<PlansOp, { type: 'activateSlot' }>[] {
-  if (plans[week]) return [];
-  return defaultActiveSlots(plans, week).map(
-    (slot) => activateSlot(week, slot) as Extract<PlansOp, { type: 'activateSlot' }>,
-  );
-}
-
-export interface ToggleSlotResult {
-  op: 'activate' | 'deactivate';
-  needsConfirm: boolean;
-  entryCount: number;
-  confirmText?: string;
-}
-
-const DEACTIVATE_CONFIRM_TEXT = 'Slot obsahuje jídla — odebrat je?';
-
-/**
- * What toggling `slot` should do, judged from `displayedSlots` (the chips the
- * user actually sees — a not-yet-stored week's inherited defaults, or the
- * stored week's `activeSlots`), not from `weekPlan` alone: activating never
- * confirms; deactivating an empty slot doesn't either; deactivating a slot
- * holding entries (summed across all 7 days of a *stored* week; an unstored
- * week has none) needs confirmation with Czech copy — the caller shows it
- * (`window.confirm`) and only then issues `deactivateSlot`.
- */
-export function toggleSlotResult(
-  weekPlan: WeekPlan | undefined,
-  displayedSlots: MealSlotKey[],
-  slot: MealSlotKey,
-): ToggleSlotResult {
-  const isActive = displayedSlots.includes(slot);
-  if (!isActive) {
-    return { op: 'activate', needsConfirm: false, entryCount: 0 };
+  const patternWeek = nearestKey ? plans[nearestKey] : undefined;
+  const targets: AutoFillTarget[] = [];
+  for (const day of ISO_DAYS) {
+    if (!patternWeek) {
+      targets.push({ day, slot: 'dinner' });
+      continue;
+    }
+    for (const slot of SLOT_ORDER) {
+      if (patternWeek.days[day][slot].length > 0) targets.push({ day, slot });
+    }
   }
-
-  const entryCount = weekPlan ? ISO_DAYS.reduce((sum, day) => sum + weekPlan.days[day][slot].length, 0) : 0;
-  if (entryCount === 0) {
-    return { op: 'deactivate', needsConfirm: false, entryCount: 0 };
-  }
-  return { op: 'deactivate', needsConfirm: true, entryCount, confirmText: DEACTIVATE_CONFIRM_TEXT };
+  return targets;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +112,7 @@ export interface DayCardLine {
   slot: MealSlotKey;
   slotLabel: string;
   entries: DayCardEntry[];
+  hasEntries: boolean;
   emptyText: string;
   mealDetailHash: string;
 }
@@ -168,31 +125,34 @@ export interface DayCard {
 }
 
 /**
- * 7 Mon->Sun cards for `week`, one line per slot in `activeSlots` (in
- * `SLOT_ORDER`) — inactive slots are simply absent from the card; their
- * entries stay intact in `plans`, just unrendered. Entry display reuses
+ * 7 Mon->Sun cards for `week`, every card always rendering all four slot
+ * lines in `SLOT_ORDER` (feature 003: no week-level slot activation).
+ * `hasEntries` per line drives the instant-clear ✕. Entry display reuses
  * `entryRows` (deleted-recipe fallback, multi-recipe name join, untried
  * badge) so the plan and meal detail screens never drift apart.
  */
-export function dayCards(week: WeekKey, plans: Plans, recipes: Recipe[], activeSlots: MealSlotKey[]): DayCard[] {
+export function dayCards(week: WeekKey, plans: Plans, recipes: Recipe[]): DayCard[] {
   const weekPlan = plans[week];
-  const active = new Set(activeSlots);
 
   return ISO_DAYS.map((day) => ({
     day,
     dayLabel: DAY_LABELS[day],
     dateText: czechDate(dateOfDay(week, day)),
-    lines: SLOT_ORDER.filter((slot) => active.has(slot)).map((slot) => ({
-      slot,
-      slotLabel: SLOT_LABELS[slot],
-      entries: entryRows(weekPlan, day, slot, recipes).map((row) => ({
+    lines: SLOT_ORDER.map((slot) => {
+      const entries = entryRows(weekPlan, day, slot, recipes).map((row) => ({
         entryId: row.entryId,
         displayName: row.displayName,
         untriedBadge: row.untriedBadge,
-      })),
-      emptyText: '—',
-      mealDetailHash: routeHash({ name: 'mealDetail', week, day, slot }),
-    })),
+      }));
+      return {
+        slot,
+        slotLabel: SLOT_LABELS[slot],
+        entries,
+        hasEntries: entries.length > 0,
+        emptyText: '—',
+        mealDetailHash: routeHash({ name: 'mealDetail', week, day, slot }),
+      };
+    }),
   }));
 }
 
@@ -206,7 +166,6 @@ export interface AutoFillRunInput {
   sales: SaleItem[];
   settings: Settings;
   week: WeekKey;
-  activeSlots: MealSlotKey[];
 }
 
 export interface ReplaceAutoEntriesOp {
@@ -220,13 +179,15 @@ export interface AutoFillRunResult {
 }
 
 /**
- * "Doplnit návrhy": fill-mode `buildAutoFill` over `input`'s active slots,
+ * "Doplnit návrhy": fill-mode `buildAutoFill`, targeting the per-weekday
+ * pattern of the nearest earlier stored week (`weekdayPatternTargets`),
  * mapped to a single `replaceAutoEntries`-shaped op (`null` when the pass
  * placed nothing — no pointless PUT). `hints` are the (day, slot) pairs with
  * no eligible candidate, for the transient "Žádný vhodný recept" UI hint.
  */
 export function runAutoFill(input: AutoFillRunInput, rng: () => number, idFn: () => string): AutoFillRunResult {
-  const { placements, emptySlots } = buildAutoFill({ ...input, mode: { kind: 'fill' }, rng, idFn });
+  const targets = weekdayPatternTargets(input.plans, input.week);
+  const { placements, emptySlots } = buildAutoFill({ ...input, mode: { kind: 'fill', targets }, rng, idFn });
   return {
     op: placements.length > 0 ? { week: input.week, placements } : null,
     hints: emptySlots,
@@ -235,8 +196,8 @@ export function runAutoFill(input: AutoFillRunInput, rng: () => number, idFn: ()
 
 /**
  * "Přegenerovat" for the whole week: reroll-mode `buildAutoFill` (targets
- * every active slot holding >=1 auto entry; manual entries are never
- * touched). `op` is `null` when the week has no auto entries to reroll.
+ * every slot holding >=1 auto entry; manual entries are never touched). `op`
+ * is `null` when the week has no auto entries to reroll.
  */
 export function runWeekReroll(input: AutoFillRunInput, rng: () => number, idFn: () => string): AutoFillRunResult {
   const { placements, emptySlots } = buildAutoFill({ ...input, mode: { kind: 'reroll' }, rng, idFn });
@@ -246,13 +207,10 @@ export function runWeekReroll(input: AutoFillRunInput, rng: () => number, idFn: 
   };
 }
 
-/** True when any *active* slot of `weekPlan` holds a `source: 'auto'` entry — drives the "Přegenerovat" button's visibility. */
-export function hasAutoEntries(weekPlan: WeekPlan | undefined, activeSlots: MealSlotKey[]): boolean {
+/** True when any slot of `weekPlan` holds a `source: 'auto'` entry — drives the "Přegenerovat" button's visibility. */
+export function hasAutoEntries(weekPlan: WeekPlan | undefined): boolean {
   if (!weekPlan) return false;
-  const active = new Set(activeSlots);
-  return ISO_DAYS.some((day) =>
-    SLOT_ORDER.some((slot) => active.has(slot) && weekPlan.days[day][slot].some((e) => e.source === 'auto')),
-  );
+  return ISO_DAYS.some((day) => SLOT_ORDER.some((slot) => weekPlan.days[day][slot].some((e) => e.source === 'auto')));
 }
 
 // ---------------------------------------------------------------------------

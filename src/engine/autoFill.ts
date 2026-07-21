@@ -47,7 +47,7 @@ export interface AutoFillPlacement {
   entries: MealEntry[];
 }
 
-export type AutoFillMode = { kind: 'fill' } | { kind: 'reroll'; only?: AutoFillTarget };
+export type AutoFillMode = { kind: 'fill'; targets: AutoFillTarget[] } | { kind: 'reroll'; only?: AutoFillTarget };
 
 export interface BuildAutoFillInput {
   recipes: Recipe[];
@@ -55,7 +55,6 @@ export interface BuildAutoFillInput {
   sales: SaleItem[];
   settings: Settings;
   week: WeekKey;
-  activeSlots: MealSlotKey[];
   mode: AutoFillMode;
   rng: () => number;
   idFn: () => string;
@@ -66,44 +65,39 @@ export interface AutoFillResult {
   emptySlots: AutoFillTarget[];
 }
 
-/** Fill-mode targets: every (day, slot) with slot active and currently empty, day-major then SLOT_ORDER. */
-function fillTargets(plans: Plans, week: WeekKey, activeSlots: MealSlotKey[]): AutoFillTarget[] {
-  const weekPlan = plans[week];
-  const active = new Set(activeSlots);
-  const targets: AutoFillTarget[] = [];
-  for (const day of ISO_DAYS) {
-    for (const slot of SLOT_ORDER) {
-      if (!active.has(slot)) continue;
-      if (slotIsEmpty(weekPlan, day, slot)) targets.push({ day, slot });
-    }
-  }
-  return targets;
+/** Day-major, then `SLOT_ORDER` — deterministic regardless of the caller's input order. */
+function sortTargets(targets: AutoFillTarget[]): AutoFillTarget[] {
+  const dayIndex = new Map(ISO_DAYS.map((d, i) => [d, i]));
+  const slotIndex = new Map(SLOT_ORDER.map((s, i) => [s, i]));
+  return [...targets].sort((a, b) => {
+    const dayDiff = dayIndex.get(a.day)! - dayIndex.get(b.day)!;
+    return dayDiff !== 0 ? dayDiff : slotIndex.get(a.slot)! - slotIndex.get(b.slot)!;
+  });
 }
 
-/** True when (day, slot) is active and holds >=1 `source: 'auto'` entry. */
-function hasAutoEntry(weekPlan: WeekPlan | undefined, active: Set<MealSlotKey>, day: IsoDay, slot: MealSlotKey): boolean {
-  if (!active.has(slot)) return false;
+/** Fill-mode targets: the caller-given targets, re-sorted day-major/SLOT_ORDER, restricted to currently-empty slots. */
+function fillTargets(plans: Plans, week: WeekKey, given: AutoFillTarget[]): AutoFillTarget[] {
+  const weekPlan = plans[week];
+  return sortTargets(given).filter((t) => slotIsEmpty(weekPlan, t.day, t.slot));
+}
+
+/** True when (day, slot) holds >=1 `source: 'auto'` entry. */
+function hasAutoEntry(weekPlan: WeekPlan | undefined, day: IsoDay, slot: MealSlotKey): boolean {
   return weekPlan?.days[day][slot].some((e) => e.source === 'auto') ?? false;
 }
 
-/** Reroll-mode targets: slots holding >=1 auto entry, restricted to `activeSlots`; `only` narrows to one candidate. */
-function rerollTargets(
-  plans: Plans,
-  week: WeekKey,
-  activeSlots: MealSlotKey[],
-  only: AutoFillTarget | undefined,
-): AutoFillTarget[] {
+/** Reroll-mode targets: every (day, slot) holding >=1 auto entry; `only` narrows to one candidate. */
+function rerollTargets(plans: Plans, week: WeekKey, only: AutoFillTarget | undefined): AutoFillTarget[] {
   const weekPlan = plans[week];
-  const active = new Set(activeSlots);
 
   if (only) {
-    return hasAutoEntry(weekPlan, active, only.day, only.slot) ? [only] : [];
+    return hasAutoEntry(weekPlan, only.day, only.slot) ? [only] : [];
   }
 
   const targets: AutoFillTarget[] = [];
   for (const day of ISO_DAYS) {
     for (const slot of SLOT_ORDER) {
-      if (hasAutoEntry(weekPlan, active, day, slot)) targets.push({ day, slot });
+      if (hasAutoEntry(weekPlan, day, slot)) targets.push({ day, slot });
     }
   }
   return targets;
@@ -116,8 +110,8 @@ function rerollTargets(
  * their own replacements, while manual entries (in targeted or untargeted
  * slots) stay and keep consuming quotas.
  */
-function baselineWeek(plans: Plans, week: WeekKey, mode: AutoFillMode, targets: AutoFillTarget[], activeSlots: MealSlotKey[]): WeekPlan {
-  const existing = plans[week] ?? emptyWeekPlan(activeSlots);
+function baselineWeek(plans: Plans, week: WeekKey, mode: AutoFillMode, targets: AutoFillTarget[]): WeekPlan {
+  const existing = plans[week] ?? emptyWeekPlan();
   if (mode.kind === 'fill') return existing;
 
   const days = { ...existing.days };
@@ -128,22 +122,20 @@ function baselineWeek(plans: Plans, week: WeekKey, mode: AutoFillMode, targets: 
 }
 
 /**
- * Computes weighted-random placements for every empty active slot (fill) or
- * every auto-holding active slot (reroll). Each pick re-ranks via
- * `rankSuggestions` against the simulated plan including all earlier picks
- * in this pass, so quota consumption and "no recipe twice" apply
- * progressively. Zero targets -> `{ placements: [], emptySlots: [] }` (the
- * caller then issues no op).
+ * Computes weighted-random placements for every empty targeted slot (fill) or
+ * every auto-holding slot (reroll). Each pick re-ranks via `rankSuggestions`
+ * against the simulated plan including all earlier picks in this pass, so
+ * quota consumption and "no recipe twice" apply progressively. Zero targets
+ * -> `{ placements: [], emptySlots: [] }` (the caller then issues no op).
  */
 export function buildAutoFill(input: BuildAutoFillInput): AutoFillResult {
-  const { recipes, plans, sales, settings, week, activeSlots, mode, rng, idFn } = input;
+  const { recipes, plans, sales, settings, week, mode, rng, idFn } = input;
 
-  const targets =
-    mode.kind === 'fill' ? fillTargets(plans, week, activeSlots) : rerollTargets(plans, week, activeSlots, mode.only);
+  const targets = mode.kind === 'fill' ? fillTargets(plans, week, mode.targets) : rerollTargets(plans, week, mode.only);
 
   if (targets.length === 0) return { placements: [], emptySlots: [] };
 
-  let workingWeek = baselineWeek(plans, week, mode, targets, activeSlots);
+  let workingWeek = baselineWeek(plans, week, mode, targets);
   const placements: AutoFillPlacement[] = [];
   const emptySlots: AutoFillTarget[] = [];
 
