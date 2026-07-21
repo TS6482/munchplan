@@ -638,6 +638,24 @@ describe('convenience actions', () => {
     expect(savedOp).toEqual({ type: 'removeMealEntry', week: '2026-W30', day: 'mon', slot: 'dinner', entryId: 'e1' });
   });
 
+  it('setEntryRecipes wraps mutate("plans", ops.setEntryRecipes(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'side1']);
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({
+      type: 'setEntryRecipes',
+      week: '2026-W30',
+      day: 'mon',
+      slot: 'dinner',
+      entryId: 'e1',
+      recipeIds: ['main1', 'side1'],
+    });
+  });
+
   it('replaceAutoEntries wraps mutate("plans", ops.replaceAutoEntries(...))', async () => {
     useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
     const placements = [{ day: 'mon' as const, slot: 'dinner' as const, entries: [] }];

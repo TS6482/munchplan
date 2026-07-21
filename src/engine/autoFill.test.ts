@@ -252,6 +252,213 @@ describe('buildAutoFill', () => {
       expect(run()).toEqual(run());
     });
 
+    it('composes a ranked main with its paired side; a sale-matched side wins regardless of the rng draw (AC3)', () => {
+      const sideA = recipe({ id: 'sideA', name: 'Side A', componentType: 'side', suitableFor: ['dinner'] });
+      const sideB = recipe({
+        id: 'sideB',
+        name: 'Side B',
+        componentType: 'side',
+        suitableFor: ['dinner'],
+        ingredients: [{ name: 'kuřecí prsa' }],
+      });
+      const main = recipe({
+        id: 'main1',
+        name: 'Main',
+        componentType: 'main',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideA', 'sideB'], salads: [] },
+      });
+      const result = buildAutoFill({
+        recipes: [main, sideA, sideB],
+        plans: {},
+        sales: [{ name: 'kuřecí' }],
+        settings: settings(),
+        week: WEEK,
+        mode: { kind: 'fill', targets: targetsFor(['dinner']) },
+        rng: TOP,
+        idFn: idFnFrom('auto'),
+      });
+
+      const monPlacement = result.placements.find((p) => p.day === 'mon')!;
+      expect(monPlacement.entries[0].recipeIds).toEqual(['main1', 'sideB']);
+    });
+
+    it('a full recipe still places as a bare single-recipe entry', () => {
+      const full = recipe({ id: 'full1', name: 'Celé jídlo', suitableFor: ['dinner'] });
+      const result = buildAutoFill({
+        recipes: [full],
+        plans: {},
+        sales: [],
+        settings: settings(),
+        week: WEEK,
+        mode: { kind: 'fill', targets: targetsFor(['dinner']) },
+        rng: TOP,
+        idFn: idFnFrom('auto'),
+      });
+
+      expect(result.placements[0].entries[0].recipeIds).toEqual(['full1']);
+    });
+
+    it('rng call order is pinned (pickWeighted then pickPairedSide per composed target): a fixed sequence reproduces the pass byte-identically', () => {
+      const sideA = recipe({ id: 'sideA', name: 'Side A', componentType: 'side', suitableFor: ['dinner'] });
+      const sideB = recipe({ id: 'sideB', name: 'Side B', componentType: 'side', suitableFor: ['dinner'] });
+      const mainA = recipe({
+        id: 'mainA',
+        name: 'Main A',
+        componentType: 'main',
+        category: 'ryba',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideA', 'sideB'], salads: [] },
+      });
+      const mainB = recipe({
+        id: 'mainB',
+        name: 'Main B',
+        componentType: 'main',
+        category: 'vege',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideA', 'sideB'], salads: [] },
+      });
+      // Deterministic sequence: call 1 (pickWeighted, target 1) -> 0; call 2
+      // (pickPairedSide, target 1) -> 0.99; call 3 (pickWeighted, target 2) ->
+      // 0.99 (only one ranked candidate left, so any value picks it); call 4
+      // (pickPairedSide, target 2) -> 0.
+      const values = [0, 0.99, 0.99, 0];
+      let n = 0;
+      const seqRng = () => values[n++];
+      const run = () =>
+        buildAutoFill({
+          recipes: [mainA, mainB, sideA, sideB],
+          plans: {},
+          sales: [],
+          settings: settings(),
+          week: WEEK,
+          mode: { kind: 'fill', targets: [{ day: 'mon', slot: 'dinner' }, { day: 'tue', slot: 'dinner' }] },
+          rng: seqRng,
+          idFn: idFnFrom('auto'),
+        });
+
+      n = 0;
+      const first = run();
+      n = 0;
+      const second = run();
+      expect(first).toEqual(second);
+      const mon = first.placements.find((p) => p.day === 'mon')!;
+      const tue = first.placements.find((p) => p.day === 'tue')!;
+      expect(mon.entries[0].recipeIds).toEqual(['mainA', 'sideB']);
+      expect(tue.entries[0].recipeIds).toEqual(['mainB', 'sideA']);
+    });
+
+    it('progressive quota counts only the composed main\'s category, not its side\'s (step 3 semantics, end-to-end)', () => {
+      const sideA = recipe({ id: 'sideA', name: 'Side A', componentType: 'side', category: 'maso', suitableFor: ['dinner'] });
+      const sideB = recipe({ id: 'sideB', name: 'Side B', componentType: 'side', category: 'maso', suitableFor: ['dinner'] });
+      const sideC = recipe({ id: 'sideC', name: 'Side C', componentType: 'side', category: 'maso', suitableFor: ['dinner'] });
+      const masoMainA = recipe({
+        id: 'masoMainA',
+        name: 'Maso A',
+        componentType: 'main',
+        category: 'maso',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideA'], salads: [] },
+      });
+      const masoMainB = recipe({
+        id: 'masoMainB',
+        name: 'Maso B',
+        componentType: 'main',
+        category: 'maso',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideB'], salads: [] },
+      });
+      const masoMainC = recipe({
+        id: 'masoMainC',
+        name: 'Maso C',
+        componentType: 'main',
+        category: 'maso',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideC'], salads: [] },
+      });
+      const result = buildAutoFill({
+        recipes: [masoMainA, masoMainB, masoMainC, sideA, sideB, sideC],
+        plans: {},
+        sales: [],
+        settings: settings({ dietRules: [{ category: 'maso', max: 2 }] }),
+        week: WEEK,
+        mode: { kind: 'fill', targets: [{ day: 'mon', slot: 'dinner' }, { day: 'tue', slot: 'dinner' }, { day: 'wed', slot: 'dinner' }] },
+        rng: TOP,
+        idFn: idFnFrom('auto'),
+      });
+
+      // If the side's "maso" category wrongly consumed quota too, only ONE
+      // composed entry (not two) would ever be placed before max-2 maso is hit.
+      expect(result.placements).toHaveLength(2);
+      const placedMains = result.placements.map((p) => p.entries[0].recipeIds[0]);
+      expect(placedMains).toEqual(['masoMainA', 'masoMainB']);
+      expect(result.emptySlots).toEqual([{ day: 'wed', slot: 'dinner' }]);
+    });
+
+    it('the same side may appear in two composed meals in one pass (sides are not no-twice-constrained)', () => {
+      const side = recipe({ id: 'side1', name: 'Side', componentType: 'side', suitableFor: ['dinner'] });
+      const mainA = recipe({
+        id: 'mainA',
+        name: 'Main A',
+        componentType: 'main',
+        category: 'ryba',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['side1'], salads: [] },
+      });
+      const mainB = recipe({
+        id: 'mainB',
+        name: 'Main B',
+        componentType: 'main',
+        category: 'vege',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['side1'], salads: [] },
+      });
+      const result = buildAutoFill({
+        recipes: [mainA, mainB, side],
+        plans: {},
+        sales: [],
+        settings: settings(),
+        week: WEEK,
+        mode: { kind: 'fill', targets: [{ day: 'mon', slot: 'dinner' }, { day: 'tue', slot: 'dinner' }] },
+        rng: TOP,
+        idFn: idFnFrom('auto'),
+      });
+
+      expect(result.placements).toHaveLength(2);
+      for (const p of result.placements) {
+        expect(p.entries[0].recipeIds).toContain('side1');
+      }
+    });
+
+    it('two different rng sequences can produce different valid composed fills', () => {
+      const sideA = recipe({ id: 'sideA', name: 'Side A', componentType: 'side', suitableFor: ['dinner'] });
+      const sideB = recipe({ id: 'sideB', name: 'Side B', componentType: 'side', suitableFor: ['dinner'] });
+      const main = recipe({
+        id: 'main1',
+        name: 'Main',
+        componentType: 'main',
+        suitableFor: ['dinner'],
+        pairings: { sides: ['sideA', 'sideB'], salads: [] },
+      });
+      const run = (rng: () => number) =>
+        buildAutoFill({
+          recipes: [main, sideA, sideB],
+          plans: {},
+          sales: [],
+          settings: settings(),
+          week: WEEK,
+          mode: { kind: 'fill', targets: [{ day: 'mon', slot: 'dinner' }] },
+          rng,
+          idFn: idFnFrom('auto'),
+        });
+
+      const resultTop = run(() => 0);
+      const resultOther = run(() => 0.99);
+
+      expect(resultTop.placements[0].entries[0].recipeIds).toEqual(['main1', 'sideA']);
+      expect(resultOther.placements[0].entries[0].recipeIds).toEqual(['main1', 'sideB']);
+    });
+
     it('two different rng sequences can produce different valid fills', () => {
       const recipeA = recipe({ id: 'ra', name: 'Recept A', suitableFor: ['dinner'] });
       const recipeB = recipe({ id: 'rb', name: 'Recept B', suitableFor: ['dinner'] });

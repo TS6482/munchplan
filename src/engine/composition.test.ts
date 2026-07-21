@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Recipe, SaleItem, Settings } from '../types';
 import { makeRecipe } from '../testing/fixtures';
-import { isBlockedForAnyone, pairedSalads, pairedSides, pickPairedSide, validPairedSides } from './composition';
+import { composeEntry, isBlockedForAnyone, pairedSalads, pairedSides, pickPairedSide, validPairedSides } from './composition';
 
 function recipe(overrides: Partial<Recipe> & { id: string }): Recipe {
   return makeRecipe({
@@ -160,6 +160,32 @@ describe('pickPairedSide', () => {
     const rng = vi.fn(() => 0);
     pickPairedSide(main, [main, plain1], [], settings(), rng);
     expect(rng).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('composeEntry', () => {
+  it('gates on componentType === "main" BEFORE any rng call: a full recipe makes ZERO rng calls', () => {
+    const full = recipe({ id: 'full1', componentType: 'full' });
+    const rng = vi.fn(() => 0);
+    const idFn = () => 'e1';
+    const entry = composeEntry(full, [full], [], settings(), rng, idFn, 'auto');
+    expect(rng).not.toHaveBeenCalled();
+    expect(entry).toEqual({ id: 'e1', recipeIds: ['full1'], source: 'auto' });
+  });
+
+  it('a main with a valid side composes [main, side] via pickPairedSide', () => {
+    const side = recipe({ id: 'side1', componentType: 'side', ingredients: [{ name: 'rýže' }] });
+    const main = recipe({ id: 'main1', componentType: 'main', pairings: { sides: ['side1'], salads: [] } });
+    const idFn = () => 'e1';
+    const entry = composeEntry(main, [main, side], [], settings(), () => 0, idFn, 'manual');
+    expect(entry).toEqual({ id: 'e1', recipeIds: ['main1', 'side1'], source: 'manual' });
+  });
+
+  it('a main with no valid sides (pickPairedSide -> null) composes [main] alone', () => {
+    const main = recipe({ id: 'main1', componentType: 'main', pairings: { sides: [], salads: [] } });
+    const idFn = () => 'e1';
+    const entry = composeEntry(main, [main], [], settings(), () => 0, idFn, 'auto');
+    expect(entry).toEqual({ id: 'e1', recipeIds: ['main1'], source: 'auto' });
   });
 });
 

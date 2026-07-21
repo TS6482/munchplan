@@ -1,14 +1,15 @@
 /**
- * Pure composition engine (feature 004, step 1) — no React, no store. Owns
- * every "which side pairs with this main" lookup: `pairedSides`/`pairedSalads`
- * (the raw pairing lists, for UI display), `validPairedSides` (filtered to
- * usable candidates, for ranking eligibility and auto-pick), and
- * `pickPairedSide` (the deterministic draw). Import direction is
+ * Pure composition engine (feature 004, steps 1 + 5) — no React, no store.
+ * Owns every "which side pairs with this main" lookup: `pairedSides`/
+ * `pairedSalads` (the raw pairing lists, for UI display), `validPairedSides`
+ * (filtered to usable candidates, for ranking eligibility and auto-pick), and
+ * `pickPairedSide` (the deterministic draw); `composeEntry` builds the full
+ * `MealEntry` a ranked placement produces. Import direction is
  * `suggest -> composition -> match` (no cycle) — `isBlockedForAnyone` moved
  * here from `suggest.ts` because `validPairedSides` needs it too.
  */
 
-import type { ComponentType, Recipe, SaleItem, Settings } from '../types';
+import type { ComponentType, MealEntry, Recipe, SaleItem, Settings } from '../types';
 import { blockedMatch, saleMatch } from './match';
 
 /** The recipe's ingredient names blocked for `person` (empty if none). */
@@ -88,4 +89,29 @@ export function pickPairedSide(
   const pool = saleMatched.length > 0 ? saleMatched : valid;
   const index = Math.floor(rng() * pool.length);
   return pool[index];
+}
+
+/**
+ * Composes one `MealEntry` for `recipe`: gates on `componentType === 'main'`
+ * BEFORE calling `rng` at all — a `full` (or `side`/`salad`, defensively)
+ * recipe places bare with zero rng calls, keeping step 10's AC7
+ * byte-identical claim true for all-`full` collections. A `main` draws one
+ * paired side via `pickPairedSide`; `null` (no valid sides) places the main
+ * alone, same as a `full` recipe.
+ */
+export function composeEntry(
+  recipe: Recipe,
+  recipes: Recipe[],
+  sales: SaleItem[],
+  settings: Settings,
+  rng: () => number,
+  idFn: () => string,
+  source: 'auto' | 'manual',
+): MealEntry {
+  if (recipe.componentType !== 'main') {
+    return { id: idFn(), recipeIds: [recipe.id], source };
+  }
+  const side = pickPairedSide(recipe, recipes, sales, settings, rng);
+  const recipeIds = side ? [recipe.id, side.id] : [recipe.id];
+  return { id: idFn(), recipeIds, source };
 }
