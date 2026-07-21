@@ -249,6 +249,7 @@ export interface SuggestionView {
   untriedBadge: boolean;
   saleText: string | null;
   freshText: string;
+  compositionBadge: string | null;
 }
 
 function freshText(weeksSinceCooked: number): string {
@@ -256,6 +257,12 @@ function freshText(weeksSinceCooked: number): string {
   return weeksSinceCooked === 1 ? 'Před 1 týdnem' : `Před ${weeksSinceCooked} týdny`;
 }
 
+/**
+ * Derived, not stored on `Suggestion` (feature 004, design decision 6):
+ * every ranked `main` will actually be composed with a paired side
+ * (`rankSuggestions` eligibility guarantees `validPairedSides` is non-empty),
+ * so the badge follows straight from `componentType`.
+ */
 export function suggestionView(s: Suggestion): SuggestionView {
   return {
     id: s.recipe.id,
@@ -263,6 +270,7 @@ export function suggestionView(s: Suggestion): SuggestionView {
     untriedBadge: s.untried,
     saleText: s.matchedSaleIngredients.length > 0 ? `Ve slevě: ${s.matchedSaleIngredients.join(', ')}` : null,
     freshText: freshText(s.weeksSinceCooked),
+    compositionBadge: s.recipe.componentType === 'main' ? 'hlavní + příloha' : null,
   };
 }
 

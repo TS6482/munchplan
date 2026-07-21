@@ -237,6 +237,7 @@ describe('suggestionView', () => {
       untriedBadge: true,
       saleText: 'Ve slevě: kuřecí',
       freshText: 'Nevařeno',
+      compositionBadge: null,
     });
   });
 
@@ -258,6 +259,21 @@ describe('suggestionView', () => {
     const r = recipe({ id: 'r1', name: 'Cokoliv' });
     const s = suggestion({ recipe: r, untried: false });
     expect(suggestionView(s).untriedBadge).toBe(false);
+  });
+
+  it('sets compositionBadge to "hlavní + příloha" for a main recipe (feature 004 step 9)', () => {
+    const r = recipe({ id: 'r1', name: 'Kuře', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const s = suggestion({ recipe: r });
+    expect(suggestionView(s).compositionBadge).toBe('hlavní + příloha');
+  });
+
+  it('sets compositionBadge to null for a full recipe, keeping sale/fresh texts unchanged (same fixture)', () => {
+    const r = recipe({ id: 'r1', name: 'Kuřecí stehna' });
+    const s = suggestion({ recipe: r, matchedSaleIngredients: ['kuřecí'], untried: true, weeksSinceCooked: Infinity });
+    const view = suggestionView(s);
+    expect(view.compositionBadge).toBeNull();
+    expect(view.saleText).toBe('Ve slevě: kuřecí');
+    expect(view.freshText).toBe('Nevařeno');
   });
 });
 
