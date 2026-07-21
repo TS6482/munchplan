@@ -1,6 +1,7 @@
-import type { Plans, Recipe, RecipeCategory, SaleItem, Settings, WeekKey } from '../types';
+import type { MealSlotKey, Plans, Recipe, RecipeCategory, SaleItem, Settings, WeekKey } from '../types';
 import { blockedMatch, saleMatch } from './match';
 import { normalizeName } from './normalize';
+import { weekRecipeIds } from './planModel';
 import { unmetMinCategories, wouldExceedMax } from './quota';
 import { isInRotationWindow, weeksSinceCooked } from './rotation';
 
@@ -10,6 +11,8 @@ export interface RankSuggestionsInput {
   sales: SaleItem[];
   settings: Settings;
   targetWeek: WeekKey;
+  /** When given, `rankSuggestions` hard-excludes recipes not `suitableFor` this slot; omitted, no suitability filter (used by pickers listing everything). */
+  slot?: MealSlotKey;
 }
 
 export interface Suggestion {
@@ -24,25 +27,30 @@ export interface Suggestion {
 export type Warning =
   | { kind: 'blocked'; person: string; ingredients: string[] }
   | { kind: 'maxExceeded'; category: RecipeCategory }
-  | { kind: 'rotation'; weeksSinceCooked: number };
+  | { kind: 'rotation'; weeksSinceCooked: number }
+  | { kind: 'unsuitable'; slot: MealSlotKey };
 
-/** Categories of recipes currently assigned to any day of `targetWeek`. Unknown recipeIds are skipped. */
+/**
+ * Categories of recipes currently assigned to any slot of any day of
+ * `targetWeek`. Duplicates count multiple times (a multi-recipe entry
+ * contributes each recipe's category; the same recipe in two slots counts
+ * twice). Unknown recipeIds are skipped.
+ */
 export function plannedCategories(recipes: Recipe[], plans: Plans, targetWeek: WeekKey): RecipeCategory[] {
   const plan = plans[targetWeek];
   if (!plan) return [];
   const byId = new Map(recipes.map((r) => [r.id, r]));
-  return Object.values(plan.days)
-    .filter((id): id is string => id != null)
+  return weekRecipeIds(plan)
     .map((id) => byId.get(id))
     .filter((r): r is Recipe => r != null)
     .map((r) => r.category);
 }
 
-/** recipeIds already assigned to any day of `targetWeek`. */
+/** recipeIds already assigned to any slot of any day of `targetWeek` (deduped). */
 function assignedRecipeIds(plans: Plans, targetWeek: WeekKey): Set<string> {
   const plan = plans[targetWeek];
   if (!plan) return new Set();
-  return new Set(Object.values(plan.days).filter((id): id is string => id != null));
+  return new Set(weekRecipeIds(plan));
 }
 
 /** The recipe's ingredient names blocked for `person` (empty if none). */
@@ -72,9 +80,13 @@ function matchedSaleIngredients(recipe: Recipe, sales: SaleItem[]): string[] {
  *
  * Ranked by the lexicographic tuple (saleMatchCount desc, weeksSinceCooked
  * desc [never cooked = Infinity], boostsUnmetMin desc, normalized name asc).
+ *
+ * When `input.slot` is given, recipes whose `suitableFor` lacks that slot are
+ * hard-excluded (AC6); omitted, no suitability filter applies (used by
+ * pickers that list every recipe regardless of slot).
  */
 export function rankSuggestions(input: RankSuggestionsInput): Suggestion[] {
-  const { recipes, plans, sales, settings, targetWeek } = input;
+  const { recipes, plans, sales, settings, targetWeek, slot } = input;
   const planned = plannedCategories(recipes, plans, targetWeek);
   const assignedIds = assignedRecipeIds(plans, targetWeek);
   const unmetMin = new Set(unmetMinCategories(planned, settings.dietRules).map((c) => normalizeName(c)));
@@ -83,6 +95,7 @@ export function rankSuggestions(input: RankSuggestionsInput): Suggestion[] {
   for (const recipe of recipes) {
     if (recipe.ingredients.length === 0) continue;
     if (assignedIds.has(recipe.id)) continue;
+    if (slot && !recipe.suitableFor.includes(slot)) continue;
     if (isBlockedForAnyone(recipe, settings)) continue;
     if (isInRotationWindow(recipe.id, plans, targetWeek, settings.rotationWeeks)) continue;
     if (wouldExceedMax(recipe.category, planned, settings.dietRules)) continue;
@@ -113,9 +126,14 @@ export function rankSuggestions(input: RankSuggestionsInput): Suggestion[] {
  * direct-assignment picker (blocked ingredients don't prevent the pick, they
  * just warn). Same underlying checks as `rankSuggestions`' exclusions, minus
  * the zero-ingredients/already-assigned cases (irrelevant to a direct pick).
+ *
+ * `unsuitable` (recipe.suitableFor lacks `input.slot`) is a warning only,
+ * never an exclusion here — manual picks stay allowed (AC5), same pattern as
+ * `blocked`. Placement: appended after `rotation`, keeping the existing
+ * blocked/maxExceeded/rotation order untouched; pinned by a test.
  */
 export function warningsFor(recipe: Recipe, input: RankSuggestionsInput): Warning[] {
-  const { recipes, plans, settings, targetWeek } = input;
+  const { recipes, plans, settings, targetWeek, slot } = input;
   const warnings: Warning[] = [];
 
   for (const person of settings.persons) {
@@ -132,6 +150,10 @@ export function warningsFor(recipe: Recipe, input: RankSuggestionsInput): Warnin
 
   if (isInRotationWindow(recipe.id, plans, targetWeek, settings.rotationWeeks)) {
     warnings.push({ kind: 'rotation', weeksSinceCooked: weeksSinceCooked(recipe.id, plans, targetWeek) });
+  }
+
+  if (slot && !recipe.suitableFor.includes(slot)) {
+    warnings.push({ kind: 'unsuitable', slot });
   }
 
   return warnings;

@@ -1,24 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import type { Ingredient, IsoDay, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
+import type { Ingredient, IsoDay, MealSlotKey, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
+import { dinnerWeek, makeRecipe, weekPlanWith } from '../testing/fixtures';
+import { emptyWeekPlan } from './planModel';
 import { buildShoppingList } from './shoppingList';
 
-function emptyDays(): Record<IsoDay, string | null> {
-  return { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+/** A single manual entry with multiple recipeIds in one (day, slot) — weekPlanWith only builds single-recipe entries, so multi-recipe fixtures are assembled directly here. */
+function multiRecipeEntryWeek(day: IsoDay, slot: MealSlotKey, recipeIds: string[]): WeekPlan {
+  const base = emptyWeekPlan([slot]);
+  return {
+    ...base,
+    days: {
+      ...base.days,
+      [day]: { ...base.days[day], [slot]: [{ id: 'entry-1', recipeIds, source: 'manual' }] },
+    },
+  };
 }
 
 function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
-  return { days: { ...emptyDays(), ...days } };
+  const filtered: Partial<Record<IsoDay, string>> = {};
+  for (const [day, id] of Object.entries(days)) {
+    if (id != null) filtered[day as IsoDay] = id;
+  }
+  return dinnerWeek(filtered);
 }
 
 function recipe(overrides: { id: string; name: string; ingredients: Ingredient[] }): Recipe {
-  return {
+  return makeRecipe({
     category: 'jine',
     effort: 'normal',
     untried: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
-  };
+  });
 }
 
 function extras(overrides?: Partial<WeekExtras>): WeekExtras {
@@ -280,6 +294,82 @@ describe('buildShoppingList', () => {
       const result = buildShoppingList({ recipes: [], plan, pantry: [], sales: [], weekExtras: extras() });
       expect(result.buy).toEqual([]);
       expect(result.home).toEqual([]);
+    });
+  });
+
+  // Step 7 (feature 002): pins AC8 across the meal-slot model. The iteration
+  // layer (weekRecipeIds, walking days -> slots -> entries -> recipeIds)
+  // landed in step 3 — these tests guard it doesn't regress.
+  describe('multi-slot aggregation (AC8, step 7)', () => {
+    it('includes ingredients from entries in different slots of the same day', () => {
+      const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+      const b = recipe({ id: 'b', name: 'Recept B', ingredients: [{ name: 'cukr', amount: 100, unit: 'g' }] });
+      const plan = weekPlanWith([
+        { day: 'mon', slot: 'lunch', recipeId: 'a' },
+        { day: 'mon', slot: 'dinner', recipeId: 'b' },
+      ]);
+      const result = buildShoppingList({ recipes: [a, b], plan, pantry: [], sales: [], weekExtras: extras() });
+      expect(result.buy.map((i) => i.key).sort()).toEqual(['cukr|g', 'mouka|g']);
+    });
+
+    it('a recipe planned twice in the week (any slots) contributes its ingredients twice, merged into one line with the recipe name deduped in fromRecipes', () => {
+      const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+      const plan = weekPlanWith([
+        { day: 'mon', slot: 'lunch', recipeId: 'a' },
+        { day: 'wed', slot: 'dinner', recipeId: 'a' },
+      ]);
+      const result = buildShoppingList({ recipes: [a], plan, pantry: [], sales: [], weekExtras: extras() });
+      expect(result.buy).toHaveLength(1);
+      expect(result.buy[0]).toMatchObject({ key: 'mouka|g', amount: 400 });
+      expect(result.buy[0].fromRecipes).toEqual(['Recept A']);
+    });
+
+    it('a multi-recipe entry contributes each recipe\'s ingredients', () => {
+      const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+      const b = recipe({ id: 'b', name: 'Recept B', ingredients: [{ name: 'cukr', amount: 100, unit: 'g' }] });
+      const plan = multiRecipeEntryWeek('mon', 'dinner', ['a', 'b']);
+      const result = buildShoppingList({ recipes: [a, b], plan, pantry: [], sales: [], weekExtras: extras() });
+      expect(result.buy.map((i) => i.key).sort()).toEqual(['cukr|g', 'mouka|g']);
+    });
+
+    it('a deleted recipeId inside a multi-recipe entry is skipped silently; the surviving recipe still contributes', () => {
+      const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+      const plan = multiRecipeEntryWeek('mon', 'dinner', ['a', 'ghost']);
+      const result = buildShoppingList({ recipes: [a], plan, pantry: [], sales: [], weekExtras: extras() });
+      expect(result.buy).toHaveLength(1);
+      expect(result.buy[0].key).toBe('mouka|g');
+    });
+
+    it('produces a literal, stable ItemKey ("mouka|g") — checks survive the plan-model change', () => {
+      const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+      const plan = dinnerWeek({ mon: 'a' });
+      const result = buildShoppingList({ recipes: [a], plan, pantry: [], sales: [], weekExtras: extras() });
+      expect(result.buy[0].key).toBe('mouka|g');
+    });
+
+    it('check state re-attaches after adding a second entry to a slot (checks keyed by ItemKey, unaffected)', () => {
+      const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+      const b = recipe({ id: 'b', name: 'Recept B', ingredients: [{ name: 'cukr', amount: 100, unit: 'g' }] });
+      const weekExtras = extras({ checks: { 'mouka|g': true } });
+      const before = buildShoppingList({
+        recipes: [a, b],
+        plan: weekPlanWith([{ day: 'mon', slot: 'dinner', recipeId: 'a' }]),
+        pantry: [],
+        sales: [],
+        weekExtras,
+      });
+      const after = buildShoppingList({
+        recipes: [a, b],
+        plan: weekPlanWith([
+          { day: 'mon', slot: 'dinner', recipeId: 'a' },
+          { day: 'mon', slot: 'dinner', recipeId: 'b' },
+        ]),
+        pantry: [],
+        sales: [],
+        weekExtras,
+      });
+      expect(before.buy.find((i) => i.key === 'mouka|g')?.checked).toBe(true);
+      expect(after.buy.find((i) => i.key === 'mouka|g')?.checked).toBe(true);
     });
   });
 });

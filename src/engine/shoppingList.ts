@@ -1,6 +1,7 @@
 import type { ExtraItem, ItemKey, Pantry, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
 import { exactMatch, itemKey, saleMatch } from './match';
 import { normalizeName } from './normalize';
+import { weekRecipeIds } from './planModel';
 
 export interface ShoppingItem {
   key: ItemKey;
@@ -45,16 +46,16 @@ interface Group {
 }
 
 /**
- * Ingredient occurrences for every recipe assigned to a day of `plan`.
- * Unknown/deleted recipeIds are skipped silently (recipe deletion never
- * crashes an old plan).
+ * Ingredient occurrences for every recipe assigned to any slot of any day of
+ * `plan`. A recipe appearing twice in the week (any slots) contributes its
+ * ingredients twice. Unknown/deleted recipeIds are skipped silently (recipe
+ * deletion never crashes an old plan).
  */
 function collectOccurrences(recipes: Recipe[], plan: WeekPlan | undefined): Occurrence[] {
   if (!plan) return [];
   const byId = new Map(recipes.map((r) => [r.id, r]));
   const occurrences: Occurrence[] = [];
-  for (const recipeId of Object.values(plan.days)) {
-    if (recipeId == null) continue;
+  for (const recipeId of weekRecipeIds(plan)) {
     const recipe = byId.get(recipeId);
     if (!recipe) continue;
     for (const ing of recipe.ingredients) {

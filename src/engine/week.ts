@@ -9,7 +9,8 @@ import type { IsoDay, WeekKey } from '../types';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-const WEEK_KEY_RE = /^(\d{4})-W(\d{2})$/;
+/** Shape of a valid week key ("YYYY-Www"); shared with route validation. */
+export const WEEK_KEY_RE = /^(\d{4})-W(\d{2})$/;
 
 function utcNoon(year: number, month: number, day: number): Date {
   return new Date(Date.UTC(year, month, day, 12, 0, 0, 0));

@@ -25,11 +25,15 @@
  */
 
 import type {
+  ComponentType,
+  DayPlan,
   DietRule,
   Extras,
   ExtraItem,
   IsoDay,
   ItemKey,
+  MealEntry,
+  MealSlotKey,
   Pantry,
   PantryItem,
   Person,
@@ -39,8 +43,12 @@ import type {
   Settings,
   WeekExtras,
   WeekKey,
+  WeekPlan,
 } from '../types';
+import { SLOT_ORDER } from '../types';
 import { normalizeName } from '../engine/normalize';
+import { emptyDayPlan, emptyWeekPlan } from '../engine/planModel';
+import { ISO_DAYS, WEEK_KEY_RE } from '../engine/week';
 
 // ---------------------------------------------------------------------------
 // recipes.json
@@ -57,41 +65,255 @@ export function deleteRecipe(id: string): RecipeOp {
 }
 
 export function applyRecipesOp(op: RecipeOp, data: Recipe[]): Recipe[] {
+  const recipes = normalizeRecipes(data);
   switch (op.type) {
     case 'upsertRecipe': {
-      const idx = data.findIndex((r) => r.id === op.recipe.id);
-      if (idx === -1) return [...data, op.recipe];
-      return data.map((r, i) => (i === idx ? op.recipe : r));
+      const idx = recipes.findIndex((r) => r.id === op.recipe.id);
+      if (idx === -1) return [...recipes, op.recipe];
+      return recipes.map((r, i) => (i === idx ? op.recipe : r));
     }
     case 'deleteRecipe':
-      return data.filter((r) => r.id !== op.id);
+      return recipes.filter((r) => r.id !== op.id);
   }
+}
+
+const DEFAULT_SUITABLE_FOR: MealSlotKey[] = ['lunch', 'dinner'];
+const VALID_SLOTS: MealSlotKey[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+const VALID_COMPONENT_TYPES: ComponentType[] = ['full', 'main', 'side', 'salad'];
+
+function normalizeSuitableFor(raw: unknown): MealSlotKey[] {
+  if (!Array.isArray(raw)) return [...DEFAULT_SUITABLE_FOR];
+  const valid = raw.filter((v): v is MealSlotKey => VALID_SLOTS.includes(v as MealSlotKey));
+  return valid.length > 0 ? valid : [...DEFAULT_SUITABLE_FOR];
+}
+
+function normalizeComponentType(raw: unknown): ComponentType {
+  return VALID_COMPONENT_TYPES.includes(raw as ComponentType) ? (raw as ComponentType) : 'full';
+}
+
+function normalizePairings(raw: unknown): Recipe['pairings'] {
+  const obj = raw && typeof raw === 'object' ? (raw as Partial<Recipe['pairings']>) : {};
+  return {
+    sides: Array.isArray(obj.sides) ? obj.sides : [],
+    salads: Array.isArray(obj.salads) ? obj.salads : [],
+  };
+}
+
+/**
+ * Migrates raw (possibly legacy) recipe data into `Recipe[]`: a missing or
+ * invalid `suitableFor` (empty, or containing only unknown slot strings)
+ * falls back to `['lunch', 'dinner']`; a mixed array keeps the valid subset.
+ * An unknown/missing `componentType` becomes `'full'`; missing/partial
+ * `pairings` lists default to `[]` each. Non-array input yields `[]`.
+ */
+export function normalizeRecipes(data: unknown): Recipe[] {
+  if (!Array.isArray(data)) return [];
+  return data.map((raw) => {
+    const recipe = (raw ?? {}) as Partial<Recipe>;
+    return {
+      ...recipe,
+      suitableFor: normalizeSuitableFor(recipe.suitableFor),
+      componentType: normalizeComponentType(recipe.componentType),
+      pairings: normalizePairings(recipe.pairings),
+    } as Recipe;
+  });
 }
 
 // ---------------------------------------------------------------------------
 // plans.json
 // ---------------------------------------------------------------------------
 
-export type PlansOp = { type: 'assignDay'; week: WeekKey; day: IsoDay; recipeId: string | null };
-
-export function assignDay(week: WeekKey, day: IsoDay, recipeId: string | null): PlansOp {
-  return { type: 'assignDay', week, day, recipeId };
+/** One targeted (day, slot)'s replacement auto entries for `replaceAutoEntries`. */
+export interface MealPlacement {
+  day: IsoDay;
+  slot: MealSlotKey;
+  entries: MealEntry[];
 }
 
-const EMPTY_WEEK_DAYS: Record<IsoDay, string | null> = {
-  mon: null,
-  tue: null,
-  wed: null,
-  thu: null,
-  fri: null,
-  sat: null,
-  sun: null,
-};
+export type PlansOp =
+  | { type: 'activateSlot'; week: WeekKey; slot: MealSlotKey }
+  | { type: 'deactivateSlot'; week: WeekKey; slot: MealSlotKey }
+  | { type: 'addMealEntry'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entry: MealEntry }
+  | { type: 'removeMealEntry'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entryId: string }
+  | { type: 'replaceAutoEntries'; week: WeekKey; placements: MealPlacement[] };
+
+/** Adds `slot` to the week's `activeSlots` (idempotent). Creates the week if missing. */
+export function activateSlot(week: WeekKey, slot: MealSlotKey): PlansOp {
+  return { type: 'activateSlot', week, slot };
+}
+
+/** Removes `slot` from `activeSlots` and deletes that slot's entries across all seven days. */
+export function deactivateSlot(week: WeekKey, slot: MealSlotKey): PlansOp {
+  return { type: 'deactivateSlot', week, slot };
+}
+
+/** Appends `entry` to (week, day, slot); idempotent by `entry.id` (replaces an existing entry with the same id). */
+export function addMealEntry(week: WeekKey, day: IsoDay, slot: MealSlotKey, entry: MealEntry): PlansOp {
+  return { type: 'addMealEntry', week, day, slot, entry };
+}
+
+/** Filters (week, day, slot) by `entryId`; a missing id is a no-op. */
+export function removeMealEntry(week: WeekKey, day: IsoDay, slot: MealSlotKey, entryId: string): PlansOp {
+  return { type: 'removeMealEntry', week, day, slot, entryId };
+}
+
+/** One PUT for a whole auto-fill/reroll pass: per targeted slot, keeps manual entries and replaces auto entries. */
+export function replaceAutoEntries(week: WeekKey, placements: MealPlacement[]): PlansOp {
+  return { type: 'replaceAutoEntries', week, placements };
+}
+
+/** Slot list in display order, deduplicated. */
+function sortSlots(slots: MealSlotKey[]): MealSlotKey[] {
+  const set = new Set(slots);
+  return SLOT_ORDER.filter((s) => set.has(s));
+}
+
+function normalizeMealEntry(raw: unknown): MealEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const entry = raw as Partial<MealEntry>;
+  if (typeof entry.id !== 'string') return null;
+  if (!Array.isArray(entry.recipeIds) || !entry.recipeIds.every((id) => typeof id === 'string')) return null;
+  if (entry.source !== 'auto' && entry.source !== 'manual') return null;
+  return { id: entry.id, recipeIds: [...entry.recipeIds], source: entry.source };
+}
+
+function normalizeDayPlan(raw: unknown): DayPlan {
+  const obj = raw && typeof raw === 'object' ? (raw as Partial<Record<MealSlotKey, unknown>>) : {};
+  const day = {} as DayPlan;
+  for (const slot of SLOT_ORDER) {
+    const rawEntries = obj[slot];
+    day[slot] = Array.isArray(rawEntries)
+      ? rawEntries.map(normalizeMealEntry).filter((e): e is MealEntry => e !== null)
+      : [];
+  }
+  return day;
+}
+
+/** A migrated legacy day: its one recipeId becomes a manual dinner entry with a deterministic id. */
+function legacyDinnerDay(week: WeekKey, day: IsoDay, recipeId: string): DayPlan {
+  return {
+    ...emptyDayPlan(),
+    dinner: [{ id: `legacy-${week}-${day}`, recipeIds: [recipeId], source: 'manual' }],
+  };
+}
+
+/** Union of slots holding at least one entry, SLOT_ORDER-sorted, falling back to `['dinner']`. */
+function unionActiveSlots(days: Record<IsoDay, DayPlan>): MealSlotKey[] {
+  const withEntries = new Set<MealSlotKey>();
+  for (const day of ISO_DAYS) {
+    for (const slot of SLOT_ORDER) {
+      if (days[day][slot].length > 0) withEntries.add(slot);
+    }
+  }
+  const union = sortSlots([...withEntries]);
+  return union.length > 0 ? union : ['dinner'];
+}
+
+function normalizeWeek(raw: unknown, week: WeekKey): WeekPlan {
+  const weekObj = raw && typeof raw === 'object' ? (raw as { activeSlots?: unknown; days?: unknown }) : {};
+  const rawDays = weekObj.days && typeof weekObj.days === 'object' ? (weekObj.days as Record<string, unknown>) : {};
+
+  const days = {} as Record<IsoDay, DayPlan>;
+  for (const day of ISO_DAYS) {
+    const rawDay = rawDays[day];
+    if (typeof rawDay === 'string') {
+      days[day] = legacyDinnerDay(week, day, rawDay);
+    } else if (rawDay == null) {
+      days[day] = emptyDayPlan();
+    } else {
+      days[day] = normalizeDayPlan(rawDay);
+    }
+  }
+
+  let activeSlots: MealSlotKey[];
+  if (Array.isArray(weekObj.activeSlots)) {
+    if (weekObj.activeSlots.length === 0) {
+      // An explicitly stored empty selection is a valid "away week" (decision 6) — respected, not re-derived.
+      activeSlots = [];
+    } else {
+      const valid = sortSlots(weekObj.activeSlots.filter((s): s is MealSlotKey => SLOT_ORDER.includes(s as MealSlotKey)));
+      activeSlots = valid.length > 0 ? valid : unionActiveSlots(days);
+    }
+  } else {
+    activeSlots = unionActiveSlots(days);
+  }
+
+  return { activeSlots, days };
+}
+
+/**
+ * Migrates raw (possibly legacy, possibly per-day mixed-shape) plan data into
+ * `Plans`. Old-shape detection happens per **day value**, not per file: a
+ * `string` day -> one deterministic-id (`legacy-{week}-{day}`) manual dinner
+ * entry; `null`/missing -> empty slots; an object -> a validated `DayPlan`
+ * (missing slot keys -> `[]`, malformed entries dropped: an entry needs a
+ * string `id`, an array of string `recipeIds`, and `source` `'auto'` or
+ * `'manual'`, else it's dropped). A week missing (or invalid) `activeSlots`
+ * derives it as the union of slots holding entries, falling back to
+ * `['dinner']`. Never throws on garbage; a non-object file yields `{}`; a
+ * top-level key that isn't a valid week key (e.g. a stray `notes` field) is
+ * dropped rather than normalized as a week.
+ */
+export function normalizePlans(data: unknown): Plans {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+  const result: Plans = {};
+  for (const [week, rawWeek] of Object.entries(data as Record<string, unknown>)) {
+    if (!WEEK_KEY_RE.test(week)) continue;
+    result[week] = normalizeWeek(rawWeek, week);
+  }
+  return result;
+}
 
 export function applyPlansOp(op: PlansOp, data: Plans): Plans {
-  const existing = data[op.week];
-  const days = { ...(existing ? existing.days : EMPTY_WEEK_DAYS), [op.day]: op.recipeId };
-  return { ...data, [op.week]: { days } };
+  const plans = normalizePlans(data);
+
+  switch (op.type) {
+    case 'activateSlot': {
+      const base = plans[op.week] ?? emptyWeekPlan([]);
+      const activeSlots = sortSlots([...base.activeSlots, op.slot]);
+      return { ...plans, [op.week]: { ...base, activeSlots } };
+    }
+    case 'deactivateSlot': {
+      const base = plans[op.week];
+      if (!base) return plans;
+      const activeSlots = base.activeSlots.filter((s) => s !== op.slot);
+      const days = { ...base.days };
+      for (const day of ISO_DAYS) {
+        days[day] = { ...days[day], [op.slot]: [] };
+      }
+      return { ...plans, [op.week]: { activeSlots, days } };
+    }
+    case 'addMealEntry': {
+      const base = plans[op.week] ?? emptyWeekPlan([op.slot]);
+      const slotEntries = base.days[op.day][op.slot];
+      const idx = slotEntries.findIndex((e) => e.id === op.entry.id);
+      const newSlotEntries =
+        idx === -1 ? [...slotEntries, op.entry] : slotEntries.map((e, i) => (i === idx ? op.entry : e));
+      const days = { ...base.days, [op.day]: { ...base.days[op.day], [op.slot]: newSlotEntries } };
+      return { ...plans, [op.week]: { ...base, days } };
+    }
+    case 'removeMealEntry': {
+      const base = plans[op.week];
+      if (!base) return plans;
+      const slotEntries = base.days[op.day][op.slot];
+      const filtered = slotEntries.filter((e) => e.id !== op.entryId);
+      const days = { ...base.days, [op.day]: { ...base.days[op.day], [op.slot]: filtered } };
+      return { ...plans, [op.week]: { ...base, days } };
+    }
+    case 'replaceAutoEntries': {
+      const targetedSlots = sortSlots(op.placements.map((p) => p.slot));
+      const base = plans[op.week] ?? emptyWeekPlan(targetedSlots);
+      let days = base.days;
+      for (const placement of op.placements) {
+        const manual = days[placement.day][placement.slot].filter((e) => e.source === 'manual');
+        days = {
+          ...days,
+          [placement.day]: { ...days[placement.day], [placement.slot]: [...manual, ...placement.entries] },
+        };
+      }
+      return { ...plans, [op.week]: { ...base, days } };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,25 @@ export type RecipeCategory = 'maso' | 'ryba' | 'vege' | 'těstoviny' | 'polévka
 
 export type Effort = 'quick' | 'normal' | 'hard';
 
+/** ASCII slot keys (feature 002); Czech UI labels live in src/components/slotLabels.ts. */
+export type MealSlotKey = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+
+/** Display/iteration order for the four meal slots. */
+export const SLOT_ORDER: MealSlotKey[] = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+/**
+ * Whether a recipe is a complete meal (`full`), a main needing accompaniment
+ * (`main`), a side (`side`), or a salad (`salad`). Persisted from feature 002
+ * onward but only consumed by the mix-and-match UI in feature 003.
+ */
+export type ComponentType = 'full' | 'main' | 'side' | 'salad';
+
+/** For `main` recipes: the specific sides/salads (by recipeId) that pair with it. */
+export interface Pairings {
+  sides: string[];
+  salads: string[];
+}
+
 export interface Ingredient {
   name: string;
   amount?: number;
@@ -35,6 +54,10 @@ export interface Recipe {
   untried: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Which meal slots this recipe fits; normalization guarantees this is never empty. */
+  suitableFor: MealSlotKey[];
+  componentType: ComponentType;
+  pairings: Pairings;
 }
 
 /** ISO-8601 day-of-week key, Monday-first. */
@@ -43,8 +66,24 @@ export type IsoDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 /** ISO-8601 week string, e.g. "2026-W30". */
 export type WeekKey = string;
 
+/**
+ * A single planned meal. This feature's UI always creates entries with
+ * exactly one `recipeIds` element; the array is reserved for feature 003
+ * (mix-and-match, multiple recipes composed into one meal).
+ */
+export interface MealEntry {
+  id: string;
+  recipeIds: string[];
+  source: 'auto' | 'manual';
+}
+
+/** A day's meal entries, one list per slot (a slot may hold 0, 1, or several entries). */
+export type DayPlan = Record<MealSlotKey, MealEntry[]>;
+
 export interface WeekPlan {
-  days: Record<IsoDay, string | null>;
+  /** Which slots render on the plan screen for this week; single source of truth (see planModel.ts). */
+  activeSlots: MealSlotKey[];
+  days: Record<IsoDay, DayPlan>;
 }
 
 export type Plans = Record<WeekKey, WeekPlan>;

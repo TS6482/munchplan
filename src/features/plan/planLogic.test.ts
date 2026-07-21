@@ -1,29 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GithubConfig } from '../../api/github';
-import type { IsoDay, Plans, Recipe, Settings, WeekPlan } from '../../types';
+import type { IsoDay, MealSlotKey, Plans, Recipe, Settings, WeekPlan } from '../../types';
+import { dinnerWeek, makeRecipe, weekPlanWith } from '../../testing/fixtures';
+import { emptyWeekPlan } from '../../engine/planModel';
 import type { Suggestion, Warning } from '../../engine/suggest';
+import { applyPlansOp, normalizePlans, replaceAutoEntries } from '../../store/ops';
 import {
   czechWarnings,
-  dayRows,
+  dayCards,
+  defaultActiveSlots,
   getSuggestions,
+  hasAutoEntries,
   pickerEntries,
   quotaSummaryLine,
+  runAutoFill,
+  runWeekReroll,
+  seedOpsForUnstoredWeek,
   suggestionView,
+  toggleSlotResult,
   weekChoices,
 } from './planLogic';
 
 const TARGET = '2026-W30';
 
-function emptyDays(): Record<IsoDay, string | null> {
-  return { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
-}
-
 function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
-  return { days: { ...emptyDays(), ...days } };
+  const filtered: Partial<Record<IsoDay, string>> = {};
+  for (const [day, id] of Object.entries(days)) {
+    if (id != null) filtered[day as IsoDay] = id;
+  }
+  return dinnerWeek(filtered);
 }
 
 function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Recipe {
-  return {
+  return makeRecipe({
     ingredients: [{ name: 'ingredience' }],
     category: 'jine',
     effort: 'normal',
@@ -31,7 +40,7 @@ function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Reci
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
-  };
+  });
 }
 
 function settings(overrides?: Partial<Settings>): Settings {
@@ -67,39 +76,196 @@ describe('weekChoices', () => {
   });
 });
 
-describe('dayRows', () => {
-  it('returns 7 empty rows for a week with no plan entry', () => {
-    const rows = dayRows(TARGET, {}, []);
-    expect(rows).toHaveLength(7);
-    expect(rows.map((r) => r.day)).toEqual(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
-    expect(rows.map((r) => r.dayLabel)).toEqual(['Po', 'Út', 'St', 'Čt', 'Pá', 'So', 'Ne']);
-    expect(rows.map((r) => r.date)).toEqual(['20.7.', '21.7.', '22.7.', '23.7.', '24.7.', '25.7.', '26.7.']);
-    for (const row of rows) {
-      expect(row.recipeId).toBeNull();
-      expect(row.recipeName).toBeNull();
-      expect(row.deleted).toBe(false);
+// ---------------------------------------------------------------------------
+// defaultActiveSlots
+// ---------------------------------------------------------------------------
+
+describe('defaultActiveSlots', () => {
+  it('returns the stored week\'s activeSlots when present', () => {
+    const plans: Plans = { [TARGET]: emptyWeekPlan(['breakfast', 'snack']) };
+    expect(defaultActiveSlots(plans, TARGET)).toEqual(['breakfast', 'snack']);
+  });
+
+  it('returns an explicitly stored empty activeSlots (a "we\'re away" week), not a fallback', () => {
+    const plans: Plans = { [TARGET]: emptyWeekPlan([]) };
+    expect(defaultActiveSlots(plans, TARGET)).toEqual([]);
+  });
+
+  it('falls back to the nearest earlier stored week\'s activeSlots', () => {
+    const plans: Plans = {
+      '2026-W28': emptyWeekPlan(['breakfast']),
+      '2026-W29': emptyWeekPlan(['snack']),
+    };
+    expect(defaultActiveSlots(plans, TARGET)).toEqual(['snack']);
+  });
+
+  it('ignores stored weeks that are not earlier than the target', () => {
+    const plans: Plans = {
+      '2026-W31': emptyWeekPlan(['snack']),
+    };
+    expect(defaultActiveSlots(plans, TARGET)).toEqual(['dinner']);
+  });
+
+  it('compares weeks by mondayOf, not string sort, across a year boundary', () => {
+    const plans: Plans = {
+      '2025-W51': emptyWeekPlan(['breakfast', 'lunch']),
+    };
+    expect(defaultActiveSlots(plans, '2026-W01')).toEqual(['breakfast', 'lunch']);
+  });
+
+  it('falls back to ["dinner"] when no earlier week is stored', () => {
+    expect(defaultActiveSlots({}, TARGET)).toEqual(['dinner']);
+  });
+
+  it('does not throw over normalizePlans output for a garbage key alongside a valid old-shape week (MINOR 4)', () => {
+    const plans = normalizePlans({ garbage: { some: 'nonsense' }, '2026-W29': emptyWeekPlan(['snack']) });
+    expect(() => defaultActiveSlots(plans, TARGET)).not.toThrow();
+    expect(defaultActiveSlots(plans, TARGET)).toEqual(['snack']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toggleSlotResult
+// ---------------------------------------------------------------------------
+
+describe('toggleSlotResult', () => {
+  it('deactivates a displayed slot on an unstored week (inherited defaults), never confirming (no stored entries)', () => {
+    expect(toggleSlotResult(undefined, ['lunch', 'dinner'], 'dinner')).toEqual({
+      op: 'deactivate',
+      needsConfirm: false,
+      entryCount: 0,
+    });
+  });
+
+  it('activates a slot not among the displayed defaults on an unstored week', () => {
+    expect(toggleSlotResult(undefined, ['lunch', 'dinner'], 'breakfast')).toEqual({
+      op: 'activate',
+      needsConfirm: false,
+      entryCount: 0,
+    });
+  });
+
+  it('activates an inactive slot on a stored week, never confirming', () => {
+    const plan = emptyWeekPlan(['dinner']);
+    expect(toggleSlotResult(plan, plan.activeSlots, 'breakfast')).toEqual({
+      op: 'activate',
+      needsConfirm: false,
+      entryCount: 0,
+    });
+  });
+
+  it('deactivates an empty active slot without confirmation', () => {
+    const plan = emptyWeekPlan(['dinner']);
+    expect(toggleSlotResult(plan, plan.activeSlots, 'dinner')).toEqual({
+      op: 'deactivate',
+      needsConfirm: false,
+      entryCount: 0,
+    });
+  });
+
+  it('requires confirmation to deactivate a slot holding entries, counting across all 7 days', () => {
+    const plan = weekPlanWith([
+      { day: 'mon', slot: 'dinner', recipeId: 'r1' },
+      { day: 'wed', slot: 'dinner', recipeId: 'r2' },
+    ]);
+    expect(toggleSlotResult(plan, plan.activeSlots, 'dinner')).toEqual({
+      op: 'deactivate',
+      needsConfirm: true,
+      entryCount: 2,
+      confirmText: 'Slot obsahuje jídla — odebrat je?',
+    });
+  });
+
+  it('allows deactivating the last remaining active slot (an all-unticked week is valid)', () => {
+    const plan = emptyWeekPlan(['snack']);
+    expect(toggleSlotResult(plan, plan.activeSlots, 'snack')).toEqual({
+      op: 'deactivate',
+      needsConfirm: false,
+      entryCount: 0,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// seedOpsForUnstoredWeek
+// ---------------------------------------------------------------------------
+
+describe('seedOpsForUnstoredWeek', () => {
+  it('returns [] when the week is already stored', () => {
+    const plans: Plans = { [TARGET]: emptyWeekPlan(['lunch']) };
+    expect(seedOpsForUnstoredWeek(plans, TARGET)).toEqual([]);
+  });
+
+  it('returns activateSlot ops for the inherited defaults when the week is unstored', () => {
+    const plans: Plans = { '2026-W28': emptyWeekPlan(['lunch', 'dinner']) };
+    expect(seedOpsForUnstoredWeek(plans, TARGET)).toEqual([
+      { type: 'activateSlot', week: TARGET, slot: 'lunch' },
+      { type: 'activateSlot', week: TARGET, slot: 'dinner' },
+    ]);
+  });
+
+  it('returns one activateSlot op for the first-ever-week ["dinner"] default', () => {
+    expect(seedOpsForUnstoredWeek({}, TARGET)).toEqual([{ type: 'activateSlot', week: TARGET, slot: 'dinner' }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dayCards
+// ---------------------------------------------------------------------------
+
+describe('dayCards', () => {
+  it('returns 7 Mon->Sun cards with a line per active slot, in SLOT_ORDER, for an unstored week', () => {
+    const cards = dayCards(TARGET, {}, [], ['snack', 'breakfast']);
+    expect(cards).toHaveLength(7);
+    expect(cards.map((c) => c.day)).toEqual(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
+    expect(cards[0].dayLabel).toBe('Po');
+    expect(cards[0].dateText).toBe('20.7.');
+    expect(cards[0].lines.map((l) => l.slot)).toEqual(['breakfast', 'snack']);
+    for (const line of cards[0].lines) {
+      expect(line.entries).toEqual([]);
+      expect(line.emptyText).toBe('—');
     }
   });
 
-  it('resolves the recipe name for an assigned day', () => {
-    const r = recipe({ id: 'r1', name: 'Kuřecí na paprice' });
-    const plans: Plans = { [TARGET]: planWith({ mon: 'r1' }) };
-    const rows = dayRows(TARGET, plans, [r]);
-    const mon = rows.find((row) => row.day === 'mon')!;
-    expect(mon.recipeId).toBe('r1');
-    expect(mon.recipeName).toBe('Kuřecí na paprice');
-    expect(mon.deleted).toBe(false);
+  it('renders only active slots as lines, hiding inactive ones', () => {
+    const cards = dayCards(TARGET, {}, [], ['dinner']);
+    expect(cards[0].lines).toHaveLength(1);
+    expect(cards[0].lines[0].slot).toBe('dinner');
   });
 
-  it('renders a "smazaný recept" row for a recipeId that no longer exists', () => {
+  it('lists entry summaries with displayName and untried badge for an active slot', () => {
+    const r = recipe({ id: 'r1', name: 'Kuřecí na paprice', untried: true });
+    const plans: Plans = { [TARGET]: planWith({ mon: 'r1' }) };
+    const cards = dayCards(TARGET, plans, [r], ['dinner']);
+    const monLine = cards[0].lines.find((l) => l.slot === 'dinner')!;
+    expect(monLine.entries).toEqual([{ entryId: 'fx-mon', displayName: 'Kuřecí na paprice', untriedBadge: true }]);
+  });
+
+  it('falls back to "smazaný recept" for a deleted recipeId', () => {
     const plans: Plans = { [TARGET]: planWith({ tue: 'gone' }) };
-    const rows = dayRows(TARGET, plans, []);
-    const tue = rows.find((row) => row.day === 'tue')!;
-    expect(tue.recipeId).toBe('gone');
-    expect(tue.recipeName).toBe('smazaný recept');
-    expect(tue.deleted).toBe(true);
+    const cards = dayCards(TARGET, plans, [], ['dinner']);
+    const tueLine = cards[1].lines.find((l) => l.slot === 'dinner')!;
+    expect(tueLine.entries).toEqual([{ entryId: 'fx-tue', displayName: 'smazaný recept', untriedBadge: false }]);
+  });
+
+  it('hides entries in inactive slots from the card, without touching the underlying data', () => {
+    const plan = weekPlanWith([{ day: 'mon', slot: 'lunch', recipeId: 'r1' }]);
+    const plans: Plans = { [TARGET]: plan };
+    const cards = dayCards(TARGET, plans, [], ['dinner']);
+    expect(cards[0].lines.map((l) => l.slot)).toEqual(['dinner']);
+    // Data is untouched: the lunch entry is still there in the raw plan.
+    expect(plans[TARGET].days.mon.lunch).toHaveLength(1);
+  });
+
+  it('builds a mealDetailHash targeting the (week, day, slot) route', () => {
+    const cards = dayCards(TARGET, {}, [], ['dinner']);
+    expect(cards[2].lines[0].mealDetailHash).toBe(`#/plan/${TARGET}/wed/dinner`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// czechWarnings
+// ---------------------------------------------------------------------------
 
 describe('czechWarnings', () => {
   it('formats a blocked warning', () => {
@@ -120,6 +286,11 @@ describe('czechWarnings', () => {
   it('formats a rotation warning with plural "před N týdny"', () => {
     const warnings: Warning[] = [{ kind: 'rotation', weeksSinceCooked: 3 }];
     expect(czechWarnings(warnings)).toEqual(['Vařeno před 3 týdny']);
+  });
+
+  it('formats an unsuitable warning with the slot accusative form (feature 002 step 5)', () => {
+    const warnings: Warning[] = [{ kind: 'unsuitable', slot: 'breakfast' }];
+    expect(czechWarnings(warnings)).toEqual(['Recept není označen jako vhodný pro snídani']);
   });
 
   it('returns an empty array for no warnings', () => {
@@ -232,6 +403,127 @@ describe('quotaSummaryLine', () => {
 });
 
 // ---------------------------------------------------------------------------
+// runAutoFill / runWeekReroll / hasAutoEntries
+// ---------------------------------------------------------------------------
+
+function autoFillRecipe(id: string, name: string): Recipe {
+  return recipe({ id, name, suitableFor: ['dinner'] });
+}
+
+describe('runAutoFill', () => {
+  it('maps zero placements to op: null (no eligible recipe anywhere)', () => {
+    const result = runAutoFill(
+      { recipes: [], plans: {}, sales: [], settings: settings(), week: TARGET, activeSlots: ['dinner'] },
+      () => 0,
+      () => 'id',
+    );
+    expect(result.op).toBeNull();
+    expect(result.hints).toHaveLength(7);
+  });
+
+  it('maps non-empty placements to a single replaceAutoEntries-shaped op', () => {
+    const recipes = ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'].map((id) => autoFillRecipe(id, id));
+    let counter = 0;
+    const result = runAutoFill(
+      { recipes, plans: {}, sales: [], settings: settings(), week: TARGET, activeSlots: ['dinner'] },
+      () => 0,
+      () => `auto-${counter++}`,
+    );
+    expect(result.op).not.toBeNull();
+    expect(result.op!.week).toBe(TARGET);
+    expect(result.op!.placements).toHaveLength(7);
+    expect(result.hints).toEqual([]);
+  });
+});
+
+// MAJOR 2: applying runAutoFill's op alone on an unstored week would derive
+// activeSlots from the placements only, silently dropping a displayed
+// default slot that happened to get zero placements. Seeding first (decision
+// 6) must keep it.
+describe('runAutoFill composition: seeding an unstored week before applying the op', () => {
+  it('keeps a displayed default slot with zero placements once the seed ops are applied before the auto-fill op', () => {
+    const dinnerOnlyRecipes = ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'].map((id) => autoFillRecipe(id, id));
+    const plans: Plans = { '2026-W29': emptyWeekPlan(['breakfast', 'dinner']) };
+    const activeSlots: MealSlotKey[] = ['breakfast', 'dinner']; // inherited from '2026-W29'
+    let counter = 0;
+
+    const seedOps = seedOpsForUnstoredWeek(plans, TARGET);
+    expect(seedOps).toEqual([
+      { type: 'activateSlot', week: TARGET, slot: 'breakfast' },
+      { type: 'activateSlot', week: TARGET, slot: 'dinner' },
+    ]);
+
+    const result = runAutoFill(
+      { recipes: dinnerOnlyRecipes, plans, sales: [], settings: settings(), week: TARGET, activeSlots },
+      () => 0,
+      () => `auto-${counter++}`,
+    );
+    expect(result.op).not.toBeNull();
+    expect(result.hints).toHaveLength(7); // no breakfast-suitable recipe -> every day hints
+    expect(result.hints.every((t) => t.slot === 'breakfast')).toBe(true);
+
+    let seededPlans = plans;
+    for (const op of seedOps) seededPlans = applyPlansOp(op, seededPlans);
+    const finalPlans = applyPlansOp(replaceAutoEntries(result.op!.week, result.op!.placements), seededPlans);
+
+    expect(finalPlans[TARGET].activeSlots).toEqual(['breakfast', 'dinner']);
+  });
+});
+
+describe('runWeekReroll', () => {
+  it('maps zero targets to op: null for a manual-only week', () => {
+    const plans: Plans = {
+      [TARGET]: weekPlanWith([{ day: 'wed', slot: 'dinner', recipeId: 'r1', source: 'manual' }]),
+    };
+    const result = runWeekReroll(
+      { recipes: [autoFillRecipe('r1', 'r1')], plans, sales: [], settings: settings(), week: TARGET, activeSlots: ['dinner'] },
+      () => 0,
+      () => 'id',
+    );
+    expect(result.op).toBeNull();
+    expect(result.hints).toEqual([]);
+  });
+
+  it('maps auto entries needing reroll to a replaceAutoEntries-shaped op', () => {
+    const plans: Plans = {
+      [TARGET]: weekPlanWith([{ day: 'wed', slot: 'dinner', recipeId: 'r1', source: 'auto', id: 'auto-1' }]),
+    };
+    const result = runWeekReroll(
+      { recipes: [autoFillRecipe('r1', 'r1')], plans, sales: [], settings: settings(), week: TARGET, activeSlots: ['dinner'] },
+      () => 0,
+      () => 'new-id',
+    );
+    expect(result.op).toEqual({
+      week: TARGET,
+      placements: [{ day: 'wed', slot: 'dinner', entries: [{ id: 'new-id', recipeIds: ['r1'], source: 'auto' }] }],
+    });
+  });
+});
+
+describe('hasAutoEntries', () => {
+  const activeSlots: MealSlotKey[] = ['dinner'];
+
+  it('is false for an undefined week', () => {
+    expect(hasAutoEntries(undefined, activeSlots)).toBe(false);
+  });
+
+  it('is false when the only auto entry is in an inactive slot', () => {
+    const plan = weekPlanWith([{ day: 'mon', slot: 'lunch', recipeId: 'r1', source: 'auto' }]);
+    expect(hasAutoEntries(plan, activeSlots)).toBe(false);
+  });
+
+  it('is true when an active slot holds an auto entry', () => {
+    const plan = weekPlanWith([{ day: 'mon', slot: 'dinner', recipeId: 'r1', source: 'auto' }]);
+    expect(hasAutoEntries(plan, activeSlots)).toBe(true);
+  });
+
+  it('is false when active slots only hold manual entries', () => {
+    const plan = weekPlanWith([{ day: 'mon', slot: 'dinner', recipeId: 'r1', source: 'manual' }]);
+    expect(hasAutoEntries(plan, activeSlots)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Integration: real useDataStore + mocked src/api/github (AC4 end-to-end at
 // the logic level: assign two maso dinners, verify a third maso recipe is
 // excluded from suggestions once "max 2x maso" is hit).
@@ -269,7 +561,7 @@ function makeLocalStorageMock() {
   };
 }
 
-describe('store integration: assignDay + suggestion recompute (AC4)', () => {
+describe('store integration: addMealEntry + suggestion recompute (AC4)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useDataStore.setState(useDataStore.getInitialState(), true);
@@ -283,7 +575,7 @@ describe('store integration: assignDay + suggestion recompute (AC4)', () => {
     }));
   });
 
-  it('assignDay persists into files.plans.data, and a maxed-out category excludes further suggestions', async () => {
+  it('addMealEntry persists into files.plans.data, and a maxed-out category excludes further suggestions', async () => {
     await useDataStore.getState().loadAll(cfg);
 
     const r1 = recipe({ id: 'r1', name: 'Kuřecí steak', category: 'maso' });
@@ -294,11 +586,15 @@ describe('store integration: assignDay + suggestion recompute (AC4)', () => {
     await useDataStore.getState().addRecipe(r3);
     await useDataStore.getState().upsertDietRule('maso', undefined, 2);
 
-    await useDataStore.getState().assignDay(TARGET, 'mon', 'r1');
-    expect(useDataStore.getState().files.plans.data[TARGET].days.mon).toBe('r1');
+    await useDataStore.getState().addMealEntry(TARGET, 'mon', 'dinner', { id: 'e1', recipeIds: ['r1'], source: 'manual' });
+    expect(useDataStore.getState().files.plans.data[TARGET].days.mon.dinner).toEqual([
+      { id: 'e1', recipeIds: ['r1'], source: 'manual' },
+    ]);
 
-    await useDataStore.getState().assignDay(TARGET, 'tue', 'r2');
-    expect(useDataStore.getState().files.plans.data[TARGET].days.tue).toBe('r2');
+    await useDataStore.getState().addMealEntry(TARGET, 'tue', 'dinner', { id: 'e2', recipeIds: ['r2'], source: 'manual' });
+    expect(useDataStore.getState().files.plans.data[TARGET].days.tue.dinner).toEqual([
+      { id: 'e2', recipeIds: ['r2'], source: 'manual' },
+    ]);
 
     const state = useDataStore.getState();
     const result = getSuggestions({
