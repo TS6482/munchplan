@@ -129,3 +129,15 @@ describe('cross-slot cooked detection (feature 002 step 5)', () => {
     expect(lastCookedWeek('b', plans, '2026-W30')).toBe('2026-W29');
   });
 });
+
+describe('composed entries (feature 004 step 3: rotation counts all recipeIds, unlike quota)', () => {
+  it('a side cooked last week inside a composed entry has weeksSinceCooked = 1', () => {
+    const plans: Plans = { '2026-W29': weekPlanWith([{ day: 'mon', slot: 'dinner', recipeId: ['main1', 'side1'] }]) };
+    expect(weeksSinceCooked('side1', plans, '2026-W30')).toBe(1);
+  });
+
+  it('the main cooked last week (with side A) is rotation-hidden this week regardless of a different prospective side (AC6)', () => {
+    const plans: Plans = { '2026-W29': weekPlanWith([{ day: 'mon', slot: 'dinner', recipeId: ['main1', 'sideA'] }]) };
+    expect(isInRotationWindow('main1', plans, '2026-W30', 2)).toBe(true);
+  });
+});

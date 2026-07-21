@@ -3,7 +3,7 @@ import type { GithubConfig } from '../api/github';
 import type { Pantry, Plans } from '../types';
 import { makeRecipe } from '../testing/fixtures';
 import { DEFAULT_PANTRY } from './seed';
-import { addMealEntry, normalizePlans, upsertRecipe } from './ops';
+import { addMealEntry, applyPlansOp, normalizePlans, setEntryRecipes, upsertRecipe } from './ops';
 
 vi.mock('../api/github', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/github')>();
@@ -451,6 +451,44 @@ describe('plans.json migration hardening (step 4)', () => {
   });
 });
 
+describe('setEntryRecipes conflict-retry (step 10)', () => {
+  it('op re-applied over a remote mutated by another device merges correctly', async () => {
+    const initialPlans: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['main1'], source: 'manual' }),
+      {},
+    );
+    useDataStore.setState({
+      cfg,
+      files: { ...useDataStore.getState().files, plans: { data: initialPlans, sha: 'p-sha-1' } },
+    });
+
+    // Simulate a conflict: by the time our setEntryRecipes op retries, the
+    // remote has gained an unrelated entry in a different slot (another
+    // device's edit landed first).
+    const remoteAfterOtherDeviceEdit = applyPlansOp(
+      addMealEntry('2026-W30', 'wed', 'lunch', { id: 'e-remote', recipeIds: ['remoteRecipe'], source: 'manual' }),
+      initialPlans,
+    );
+    saveWithRetryMock.mockImplementation(async (_apiCfg, _path, op, apply) => ({
+      data: (apply as (o: unknown, remote: unknown) => unknown)(op, remoteAfterOtherDeviceEdit),
+      sha: 'p-sha-after-conflict',
+    }));
+
+    await useDataStore
+      .getState()
+      .mutate('plans', setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']));
+
+    const state = useDataStore.getState().files.plans.data as Plans;
+    // The local composition edit survives...
+    expect(state['2026-W30'].days.mon.dinner).toEqual([{ id: 'e1', recipeIds: ['main1', 'sideA'], source: 'manual' }]);
+    // ...alongside the remote's concurrently-added entry.
+    expect(state['2026-W30'].days.wed.lunch).toEqual([
+      { id: 'e-remote', recipeIds: ['remoteRecipe'], source: 'manual' },
+    ]);
+    expect(useDataStore.getState().files.plans.sha).toBe('p-sha-after-conflict');
+  });
+});
+
 describe('mutate', () => {
   function seedRecipesFile(): void {
     useDataStore.setState({
@@ -636,6 +674,24 @@ describe('convenience actions', () => {
     const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
     expect(savedPath).toBe('plans.json');
     expect(savedOp).toEqual({ type: 'removeMealEntry', week: '2026-W30', day: 'mon', slot: 'dinner', entryId: 'e1' });
+  });
+
+  it('setEntryRecipes wraps mutate("plans", ops.setEntryRecipes(...))', async () => {
+    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
+    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
+
+    await useDataStore.getState().setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'side1']);
+
+    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
+    expect(savedPath).toBe('plans.json');
+    expect(savedOp).toEqual({
+      type: 'setEntryRecipes',
+      week: '2026-W30',
+      day: 'mon',
+      slot: 'dinner',
+      entryId: 'e1',
+      recipeIds: ['main1', 'side1'],
+    });
   });
 
   it('replaceAutoEntries wraps mutate("plans", ops.replaceAutoEntries(...))', async () => {

@@ -134,7 +134,8 @@ export type PlansOp =
   | { type: 'addMealEntry'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entry: MealEntry }
   | { type: 'removeMealEntry'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entryId: string }
   | { type: 'replaceAutoEntries'; week: WeekKey; placements: MealPlacement[] }
-  | { type: 'clearDaySlot'; week: WeekKey; day: IsoDay; slot: MealSlotKey };
+  | { type: 'clearDaySlot'; week: WeekKey; day: IsoDay; slot: MealSlotKey }
+  | { type: 'setEntryRecipes'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entryId: string; recipeIds: string[] };
 
 /** Appends `entry` to (week, day, slot); idempotent by `entry.id` (replaces an existing entry with the same id). */
 export function addMealEntry(week: WeekKey, day: IsoDay, slot: MealSlotKey, entry: MealEntry): PlansOp {
@@ -154,6 +155,24 @@ export function replaceAutoEntries(week: WeekKey, placements: MealPlacement[]): 
 /** Empties (week, day, slot)'s entry list instantly; a missing week is a no-op. */
 export function clearDaySlot(week: WeekKey, day: IsoDay, slot: MealSlotKey): PlansOp {
   return { type: 'clearDaySlot', week, day, slot };
+}
+
+/**
+ * Replaces the entry identified by `entryId` in exactly (week, day, slot)
+ * with `recipeIds` wholesale, preserving the entry's `id`, `source`, and
+ * position (feature 004 plan, design decision 8). Missing week or missing
+ * entry is a no-op (a concurrent remote `removeMealEntry`/`clearDaySlot`
+ * sticks — no resurrection). Composition edits deliberately do NOT change
+ * `source`: a customized auto-filled meal is still replaced by a reroll.
+ */
+export function setEntryRecipes(
+  week: WeekKey,
+  day: IsoDay,
+  slot: MealSlotKey,
+  entryId: string,
+  recipeIds: string[],
+): PlansOp {
+  return { type: 'setEntryRecipes', week, day, slot, entryId, recipeIds };
 }
 
 function normalizeMealEntry(raw: unknown): MealEntry | null {
@@ -264,6 +283,16 @@ export function applyPlansOp(op: PlansOp, data: Plans): Plans {
       const base = plans[op.week];
       if (!base) return plans;
       const days = { ...base.days, [op.day]: { ...base.days[op.day], [op.slot]: [] } };
+      return { ...plans, [op.week]: { ...base, days } };
+    }
+    case 'setEntryRecipes': {
+      const base = plans[op.week];
+      if (!base) return plans;
+      const slotEntries = base.days[op.day][op.slot];
+      const idx = slotEntries.findIndex((e) => e.id === op.entryId);
+      if (idx === -1) return plans;
+      const newSlotEntries = slotEntries.map((e, i) => (i === idx ? { ...e, recipeIds: op.recipeIds } : e));
+      const days = { ...base.days, [op.day]: { ...base.days[op.day], [op.slot]: newSlotEntries } };
       return { ...plans, [op.week]: { ...base, days } };
     }
   }

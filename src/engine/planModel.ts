@@ -27,14 +27,37 @@ export function entriesOfDay(dayPlan: DayPlan): MealEntry[] {
 
 /**
  * Every recipeId of every entry of every slot of every day in the week.
- * Duplicates are preserved on purpose — quota counting and shopping-list
- * aggregation both need multiplicity (a recipe planned twice counts twice).
+ * Duplicates are preserved on purpose — rotation and shopping-list
+ * aggregation both need multiplicity (a recipe planned twice counts twice;
+ * a composed entry's side/salad counts as cooked too, once planned). Diet
+ * quotas do NOT use this — see `weekPrimaryRecipeIds` (feature 004 plan,
+ * design decision 1: a meal's category is judged by its main, not its
+ * side/salad components).
  */
 export function weekRecipeIds(weekPlan: WeekPlan): string[] {
   const ids: string[] = [];
   for (const day of ISO_DAYS) {
     for (const entry of entriesOfDay(weekPlan.days[day])) {
       ids.push(...entry.recipeIds);
+    }
+  }
+  return ids;
+}
+
+/**
+ * The FIRST recipeId of every entry of every slot of every day in the week —
+ * each entry's primary/meal-identity recipe (feature 004 plan, design
+ * decision 1: overrides the 002 step-5 "count all recipeIds" pin for quota
+ * purposes — diet quotas judge the main a composed entry places, not its
+ * side/salad). Duplicates are preserved (the same main planned twice still
+ * counts twice). Entries with an empty `recipeIds` array are skipped
+ * defensively (the UI never creates one, but this stays crash-safe).
+ */
+export function weekPrimaryRecipeIds(weekPlan: WeekPlan): string[] {
+  const ids: string[] = [];
+  for (const day of ISO_DAYS) {
+    for (const entry of entriesOfDay(weekPlan.days[day])) {
+      if (entry.recipeIds.length > 0) ids.push(entry.recipeIds[0]);
     }
   }
   return ids;

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IsoDay, Plans, Recipe, SaleItem, Settings, WeekPlan } from '../types';
 import { dinnerWeek, makeRecipe, weekPlanWith } from '../testing/fixtures';
-import { emptyWeekPlan } from './planModel';
 import { plannedCategories, rankSuggestions, warningsFor } from './suggest';
 
 const TARGET: string = '2026-W30';
@@ -329,15 +328,58 @@ describe('rankSuggestions with slot filter (feature 002 step 5)', () => {
   });
 });
 
-describe('plannedCategories multiplicity (feature 002 step 5)', () => {
-  it('counts both categories of a multi-recipe entry (recipeIds: [a, b])', () => {
+describe('plannedCategories counts only each entry\'s primary recipe (feature 004 plan decision 1, overrides feature 002 step 5)', () => {
+  // The 002-era assertion here counted BOTH categories of a multi-recipe
+  // entry. Feature 004's design decision 1 overrides that: diet quotas judge
+  // the meal's primary (main) recipe only, not its composed side/salad, so a
+  // composed entry [main, side] now yields just the main's category.
+  it('counts only the FIRST recipeId of a composed entry (recipeIds: [main, side])', () => {
+    const main = recipe({ id: 'a', name: 'Maso jidlo', category: 'maso' });
+    const side = recipe({ id: 'b', name: 'Rybi priloha', category: 'ryba', componentType: 'side' });
+    const plans: Plans = { [TARGET]: dinnerWeek({ mon: ['a', 'b'] }) };
+    const categories = plannedCategories([main, side], plans, TARGET);
+    expect(categories).toEqual(['maso']);
+  });
+
+  it('a max 2x maso rule is consumed by two composed maso mains, not their vege sides', () => {
+    const main1 = recipe({ id: 'main1', name: 'Maso 1', category: 'maso' });
+    const main2 = recipe({ id: 'main2', name: 'Maso 2', category: 'maso' });
+    const side1 = recipe({ id: 'side1', name: 'Vege priloha 1', category: 'vege', componentType: 'side' });
+    const side2 = recipe({ id: 'side2', name: 'Vege priloha 2', category: 'vege', componentType: 'side' });
+    const plans: Plans = {
+      [TARGET]: weekPlanWith([
+        { day: 'mon', slot: 'dinner', recipeId: ['main1', 'side1'] },
+        { day: 'tue', slot: 'dinner', recipeId: ['main2', 'side2'] },
+      ]),
+    };
+    const categories = plannedCategories([main1, main2, side1, side2], plans, TARGET);
+    expect(categories.slice().sort()).toEqual(['maso', 'maso']);
+  });
+
+  it('a min 1x vege rule is NOT satisfied by a planned vege side (spurious-satisfaction guard)', () => {
+    const main = recipe({ id: 'main1', name: 'Maso', category: 'maso' });
+    const vegeSide = recipe({ id: 'side1', name: 'Vege priloha', category: 'vege', componentType: 'side' });
+    const plans: Plans = { [TARGET]: dinnerWeek({ mon: ['main1', 'side1'] }) };
+    const categories = plannedCategories([main, vegeSide], plans, TARGET);
+    expect(categories).toEqual(['maso']);
+  });
+
+  it('two separate single-recipe entries still count both categories', () => {
     const a = recipe({ id: 'a', name: 'Maso jidlo', category: 'maso' });
     const b = recipe({ id: 'b', name: 'Rybi jidlo', category: 'ryba' });
-    const week = emptyWeekPlan();
-    week.days.mon.dinner = [{ id: 'e1', recipeIds: ['a', 'b'], source: 'manual' }];
-    const plans: Plans = { [TARGET]: week };
+    const plans: Plans = { [TARGET]: dinnerWeek({ mon: 'a', tue: 'b' }) };
     const categories = plannedCategories([a, b], plans, TARGET);
     expect(categories.slice().sort()).toEqual(['maso', 'ryba']);
+  });
+
+  it('assignedRecipeIds still excludes every recipeId of a composed entry, not just the primary (assert once)', () => {
+    const a = recipe({ id: 'a', name: 'Maso jidlo', category: 'maso' });
+    const b = recipe({ id: 'b', name: 'Rybi jidlo', category: 'ryba' });
+    const plans: Plans = { [TARGET]: dinnerWeek({ mon: ['a', 'b'] }) };
+    const result = rankSuggestions({ recipes: [a, b], plans, sales: [], settings: settings(), targetWeek: TARGET });
+    // Both 'a' and 'b' are already assigned (assignedRecipeIds still counts
+    // ALL recipeIds, unlike plannedCategories) -- neither reappears.
+    expect(result).toEqual([]);
   });
 });
 
@@ -478,5 +520,170 @@ describe('warningsFor', () => {
       { kind: 'rotation', weeksSinceCooked: 1 },
       { kind: 'unsuitable', slot: 'dinner' },
     ]);
+  });
+
+  describe('unpairedMain (feature 004 step 2)', () => {
+    it('appends unpairedMain last, after unsuitable, for a main with no valid sides', () => {
+      const main = recipe({ id: 'main1', name: 'Kuřecí prsa', componentType: 'main', suitableFor: ['breakfast'] });
+      const warnings = warningsFor(main, {
+        recipes: [main],
+        plans: {},
+        sales: [],
+        settings: settings(),
+        targetWeek: TARGET,
+        slot: 'dinner',
+      });
+      expect(warnings).toEqual([{ kind: 'unsuitable', slot: 'dinner' }, { kind: 'unpairedMain' }]);
+    });
+
+    it('does not emit unpairedMain for a main with >=1 valid paired side', () => {
+      const side = recipe({ id: 'side1', name: 'Rýže', componentType: 'side' });
+      const main = recipe({
+        id: 'main1',
+        name: 'Kuřecí prsa',
+        componentType: 'main',
+        pairings: { sides: ['side1'], salads: [] },
+      });
+      const warnings = warningsFor(main, {
+        recipes: [main, side],
+        plans: {},
+        sales: [],
+        settings: settings(),
+        targetWeek: TARGET,
+      });
+      expect(warnings).toEqual([]);
+    });
+
+    it('does not emit unpairedMain for a full recipe', () => {
+      const full = recipe({ id: 'full1', name: 'Guláš' });
+      const warnings = warningsFor(full, { recipes: [full], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+      expect(warnings).toEqual([]);
+    });
+
+    it('produces no warning kinds for side/salad recipes (freely pickable, no warning)', () => {
+      const side = recipe({ id: 'side1', name: 'Rýže', componentType: 'side' });
+      const salad = recipe({ id: 'salad1', name: 'Salát', componentType: 'salad' });
+      expect(
+        warningsFor(side, { recipes: [side], plans: {}, sales: [], settings: settings(), targetWeek: TARGET }),
+      ).toEqual([]);
+      expect(
+        warningsFor(salad, { recipes: [salad], plans: {}, sales: [], settings: settings(), targetWeek: TARGET }),
+      ).toEqual([]);
+    });
+  });
+});
+
+describe('composition eligibility (feature 004 step 2)', () => {
+  it('never ranks a side recipe, even with a sale match / suitable slot', () => {
+    const side = recipe({
+      id: 'side1',
+      name: 'Bramborová kaše',
+      componentType: 'side',
+      suitableFor: ['dinner'],
+      ingredients: [{ name: 'brambory' }],
+    });
+    const sales: SaleItem[] = [{ name: 'brambory' }];
+    const result = rankSuggestions({
+      recipes: [side],
+      plans: {},
+      sales,
+      settings: settings(),
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('never ranks a salad recipe', () => {
+    const salad = recipe({ id: 'salad1', name: 'Okurkový salát', componentType: 'salad' });
+    const result = rankSuggestions({ recipes: [salad], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(result).toEqual([]);
+  });
+
+  it('ranks a main recipe with >=1 valid paired side', () => {
+    const side = recipe({ id: 'side1', name: 'Rýže', componentType: 'side' });
+    const main = recipe({
+      id: 'main1',
+      name: 'Kuřecí prsa',
+      componentType: 'main',
+      pairings: { sides: ['side1'], salads: [] },
+    });
+    const result = rankSuggestions({
+      recipes: [main, side],
+      plans: {},
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+    });
+    expect(result.map((s) => s.recipe.id)).toEqual(['main1']);
+  });
+
+  it('excludes a main with zero pairings', () => {
+    const main = recipe({ id: 'main1', name: 'Kuřecí prsa', componentType: 'main' });
+    const result = rankSuggestions({ recipes: [main], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(result).toEqual([]);
+  });
+
+  it('excludes a main whose only paired side is deleted', () => {
+    const main = recipe({
+      id: 'main1',
+      name: 'Kuřecí prsa',
+      componentType: 'main',
+      pairings: { sides: ['gone'], salads: [] },
+    });
+    const result = rankSuggestions({ recipes: [main], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(result).toEqual([]);
+  });
+
+  it('excludes a main whose only paired side changed componentType away from side', () => {
+    // "retyped" is itself a valid `full` recipe with ingredients, so it is
+    // independently ranked on its own merits (unrelated to this test); only
+    // "main1" is asserted absent — it must not gain eligibility just because
+    // its stale pairing still points at "retyped".
+    const retyped = recipe({ id: 'retyped', name: 'Bývalá příloha', componentType: 'full' });
+    const main = recipe({
+      id: 'main1',
+      name: 'Kuřecí prsa',
+      componentType: 'main',
+      pairings: { sides: ['retyped'], salads: [] },
+    });
+    const result = rankSuggestions({
+      recipes: [main, retyped],
+      plans: {},
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+    });
+    expect(result.map((s) => s.recipe.id)).not.toContain('main1');
+  });
+
+  it('excludes a main whose only paired side is blocked for a person', () => {
+    const blockedSide = recipe({
+      id: 'blocked',
+      name: 'Houbová obloha',
+      componentType: 'side',
+      ingredients: [{ name: 'houby' }],
+    });
+    const main = recipe({
+      id: 'main1',
+      name: 'Kuřecí prsa',
+      componentType: 'main',
+      pairings: { sides: ['blocked'], salads: [] },
+    });
+    const s = settings({ persons: [{ name: 'Petr', blocked: ['houby'] }, { name: 'Jana', blocked: [] }] });
+    const result = rankSuggestions({
+      recipes: [main, blockedSide],
+      plans: {},
+      sales: [],
+      settings: s,
+      targetWeek: TARGET,
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('leaves full recipes untouched (AC7 guard)', () => {
+    const full = recipe({ id: 'full1', name: 'Guláš' });
+    const result = rankSuggestions({ recipes: [full], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(result.map((s) => s.recipe.id)).toEqual(['full1']);
   });
 });

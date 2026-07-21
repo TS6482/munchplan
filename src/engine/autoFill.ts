@@ -6,6 +6,7 @@
 
 import type { IsoDay, MealEntry, MealSlotKey, Plans, Recipe, SaleItem, Settings, WeekKey, WeekPlan } from '../types';
 import { SLOT_ORDER } from '../types';
+import { composeEntry } from './composition';
 import { emptyWeekPlan, slotIsEmpty } from './planModel';
 import { rankSuggestions } from './suggest';
 import { ISO_DAYS } from './week';
@@ -127,6 +128,16 @@ function baselineWeek(plans: Plans, week: WeekKey, mode: AutoFillMode, targets: 
  * against the simulated plan including all earlier picks in this pass, so
  * quota consumption and "no recipe twice" apply progressively. Zero targets
  * -> `{ placements: [], emptySlots: [] }` (the caller then issues no op).
+ *
+ * Placement composes via `composeEntry` (feature 004 step 5): per target, rng
+ * is called once for `pickWeighted` (choosing the ranked candidate) and, only
+ * when that candidate is a `main`, once more inside `composeEntry` for
+ * `pickPairedSide` — this fixed call order is what makes a pinned rng
+ * sequence reproduce the whole pass byte-identically. The FULL composed
+ * entry (main + side, when present) is appended to `workingWeek` so later
+ * targets in the same pass see it; quota still counts only the primary
+ * recipe (step 3 semantics), while a side may be redrawn into another meal
+ * in the same pass (sides are not no-twice-constrained).
  */
 export function buildAutoFill(input: BuildAutoFillInput): AutoFillResult {
   const { recipes, plans, sales, settings, week, mode, rng, idFn } = input;
@@ -150,7 +161,7 @@ export function buildAutoFill(input: BuildAutoFillInput): AutoFillResult {
       continue;
     }
 
-    const entry: MealEntry = { id: idFn(), recipeIds: [ranked[idx].recipe.id], source: 'auto' };
+    const entry = composeEntry(ranked[idx].recipe, recipes, sales, settings, rng, idFn, 'auto');
     placements.push({ day, slot, entries: [entry] });
     workingWeek = {
       ...workingWeek,

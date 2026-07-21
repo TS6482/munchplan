@@ -3,11 +3,16 @@ import type { MealSlotKey, Recipe } from '../../types';
 import { makeRecipe } from '../../testing/fixtures';
 import {
   canBePlanned,
+  emptyForm as productionEmptyForm,
+  filterPool,
   formatAmount,
   fromRecipe,
+  pairingChips,
+  pairingPools,
   parseAmount,
   promoteRecipe,
   sourceHref,
+  togglePairing,
   toggleSlotSelection,
   toRecipe,
   validateFullForm,
@@ -25,9 +30,20 @@ function emptyForm(overrides: Partial<FormValues> = {}): FormValues {
     portionsStr: '2',
     ingredients: [],
     suitableFor: ['lunch', 'dinner'],
+    componentType: 'full',
+    pairings: { sides: [], salads: [] },
     ...overrides,
   };
 }
+
+describe('emptyForm (production default)', () => {
+  it('defaults new recipes to full component type with no pairings', () => {
+    const values = productionEmptyForm();
+    expect(values.componentType).toBe('full');
+    expect(values.pairings).toEqual({ sides: [], salads: [] });
+    expect(values.suitableFor).toEqual(['lunch', 'dinner']);
+  });
+});
 
 describe('parseAmount', () => {
   it('empty string is undefined (no amount given)', () => {
@@ -142,7 +158,25 @@ describe('validateFullForm', () => {
         portions: 2,
         untried: false,
         suitableFor: ['lunch', 'dinner'],
+        componentType: 'full',
+        pairings: { sides: [], salads: [] },
       });
+    }
+  });
+
+  it('passes componentType/pairings through unchanged — an unpaired main is valid (no new validation errors)', () => {
+    const result = validateFullForm(
+      emptyForm({
+        name: 'Kuře pečené',
+        ingredients: [{ name: 'kuře', amountStr: '1', unit: 'ks' }],
+        componentType: 'main',
+        pairings: { sides: [], salads: [] },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.recipe.componentType).toBe('main');
+      expect(result.recipe.pairings).toEqual({ sides: [], salads: [] });
     }
   });
 
@@ -202,6 +236,15 @@ describe('validateQuickAdd', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.recipe.suitableFor).toEqual(['lunch', 'dinner']);
   });
+
+  it('always emits componentType full with empty pairings (quick-add stays full)', () => {
+    const result = validateQuickAdd('Rychlé rizoto', '');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.recipe.componentType).toBe('full');
+      expect(result.recipe.pairings).toEqual({ sides: [], salads: [] });
+    }
+  });
 });
 
 describe('toRecipe', () => {
@@ -214,6 +257,8 @@ describe('toRecipe', () => {
     ingredients: [{ name: 'maso' }],
     untried: false,
     suitableFor: ['lunch', 'dinner'] as MealSlotKey[],
+    componentType: 'full' as const,
+    pairings: { sides: [], salads: [] },
   };
 
   it('creates a new recipe with a generated id and createdAt=updatedAt=now', () => {
@@ -255,17 +300,26 @@ describe('toRecipe', () => {
     expect(recipe.name).toBe('Guláš');
   });
 
-  it('edit updates suitableFor from the form but preserves existing componentType/pairings', () => {
+  it('edit writes componentType/pairings from the draft, not the existing recipe (the feature — no longer preserved via ...existing)', () => {
     const existing: Recipe = makeRecipe({
       id: 'existing-id',
       componentType: 'main',
       pairings: { sides: ['side-1'], salads: [] },
       suitableFor: ['breakfast'],
     });
-    const recipe = toRecipe({ ...draft, suitableFor: ['breakfast', 'snack'] }, existing, '2026-07-19T10:00:00.000Z');
+    const recipe = toRecipe(
+      {
+        ...draft,
+        suitableFor: ['breakfast', 'snack'],
+        componentType: 'side',
+        pairings: { sides: [], salads: ['salad-9'] },
+      },
+      existing,
+      '2026-07-19T10:00:00.000Z',
+    );
     expect(recipe.suitableFor).toEqual(['breakfast', 'snack']);
-    expect(recipe.componentType).toBe('main');
-    expect(recipe.pairings).toEqual({ sides: ['side-1'], salads: [] });
+    expect(recipe.componentType).toBe('side');
+    expect(recipe.pairings).toEqual({ sides: [], salads: ['salad-9'] });
   });
 });
 
@@ -364,6 +418,8 @@ describe('fromRecipe', () => {
         { name: 'sůl', amountStr: '', unit: '' },
       ],
       suitableFor: ['lunch', 'dinner'],
+      componentType: 'full',
+      pairings: { sides: [], salads: [] },
     });
   });
 
@@ -387,12 +443,113 @@ describe('fromRecipe', () => {
       portionsStr: '2',
       ingredients: [],
       suitableFor: ['lunch', 'dinner'],
+      componentType: 'full',
+      pairings: { sides: [], salads: [] },
     });
   });
 
   it('round-trips a non-default suitableFor', () => {
     const recipe: Recipe = makeRecipe({ suitableFor: ['breakfast', 'snack'] });
     expect(fromRecipe(recipe).suitableFor).toEqual(['breakfast', 'snack']);
+  });
+
+  it('round-trips componentType and pairings, including stale (deleted/re-typed) ids (decision 7)', () => {
+    const recipe: Recipe = makeRecipe({
+      componentType: 'main',
+      pairings: { sides: ['deleted-side', 'side-1'], salads: ['retyped-salad'] },
+    });
+    const values = fromRecipe(recipe);
+    expect(values.componentType).toBe('main');
+    expect(values.pairings).toEqual({ sides: ['deleted-side', 'side-1'], salads: ['retyped-salad'] });
+  });
+
+  it('a stale pairing id survives open -> save unchanged (decision 7 pin)', () => {
+    const existing: Recipe = makeRecipe({
+      id: 'main-1',
+      componentType: 'main',
+      pairings: { sides: ['deleted-side'], salads: [] },
+      ingredients: [{ name: 'kuře' }],
+    });
+    const opened = fromRecipe(existing);
+    const result = validateFullForm(opened);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const saved = toRecipe(result.recipe, existing, '2026-07-20T00:00:00.000Z');
+    expect(saved.pairings.sides).toEqual(['deleted-side']);
+  });
+});
+
+describe('togglePairing', () => {
+  it('adds an id not yet present, keeping insertion order', () => {
+    expect(togglePairing(['a'], 'b')).toEqual(['a', 'b']);
+  });
+
+  it('removes an id already present', () => {
+    expect(togglePairing(['a', 'b'], 'a')).toEqual(['b']);
+  });
+});
+
+describe('pairingPools', () => {
+  it('filters by componentType and Czech-sorts sides/salads separately', () => {
+    const recipes = [
+      makeRecipe({ id: 'side-b', name: 'Brambory', componentType: 'side' }),
+      makeRecipe({ id: 'side-a', name: 'Ančovičky', componentType: 'side' }),
+      makeRecipe({ id: 'salad-b', name: 'Coleslaw', componentType: 'salad' }),
+      makeRecipe({ id: 'salad-a', name: 'Bramborový salát', componentType: 'salad' }),
+      makeRecipe({ id: 'main-1', name: 'Kuře', componentType: 'main' }),
+      makeRecipe({ id: 'full-1', name: 'Guláš', componentType: 'full' }),
+    ];
+    const pools = pairingPools(recipes, undefined);
+    expect(pools.sides.map((r) => r.id)).toEqual(['side-a', 'side-b']);
+    expect(pools.salads.map((r) => r.id)).toEqual(['salad-a', 'salad-b']);
+  });
+
+  it('excludes the edited recipe id (a recipe cannot pair with itself)', () => {
+    const recipes = [
+      makeRecipe({ id: 'self', name: 'Brambory', componentType: 'side' }),
+      makeRecipe({ id: 'other', name: 'Rýže', componentType: 'side' }),
+    ];
+    const pools = pairingPools(recipes, 'self');
+    expect(pools.sides.map((r) => r.id)).toEqual(['other']);
+  });
+
+  it('undefined editedId (creating a new recipe) excludes nothing', () => {
+    const recipes = [makeRecipe({ id: 's1', name: 'Rýže', componentType: 'side' })];
+    expect(pairingPools(recipes, undefined).sides).toHaveLength(1);
+  });
+});
+
+describe('filterPool', () => {
+  it('filters by normalized (diacritic/case-insensitive) name substring', () => {
+    const pool = [
+      makeRecipe({ id: '1', name: 'Bramborová kaše' }),
+      makeRecipe({ id: '2', name: 'Rýže' }),
+    ];
+    expect(filterPool(pool, 'bramb').map((r) => r.id)).toEqual(['1']);
+    expect(filterPool(pool, 'RYZE').map((r) => r.id)).toEqual(['2']);
+  });
+
+  it('an empty query returns the pool unchanged', () => {
+    const pool = [makeRecipe({ id: '1' }), makeRecipe({ id: '2' })];
+    expect(filterPool(pool, '')).toEqual(pool);
+  });
+});
+
+describe('pairingChips', () => {
+  it('returns names of currently paired sides/salads, skipping stale ids', () => {
+    const side = makeRecipe({ id: 'side-1', name: 'Brambory', componentType: 'side' });
+    const salad = makeRecipe({ id: 'salad-1', name: 'Coleslaw', componentType: 'salad' });
+    const main = makeRecipe({
+      id: 'main-1',
+      componentType: 'main',
+      pairings: { sides: ['side-1', 'deleted'], salads: ['salad-1'] },
+    });
+    expect(pairingChips(main, [main, side, salad])).toEqual({ sides: ['Brambory'], salads: ['Coleslaw'] });
+  });
+
+  it('returns empty arrays for an unpaired main', () => {
+    const main = makeRecipe({ id: 'main-1', componentType: 'main' });
+    expect(pairingChips(main, [main])).toEqual({ sides: [], salads: [] });
   });
 });
 

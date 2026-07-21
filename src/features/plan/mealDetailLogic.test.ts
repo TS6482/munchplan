@@ -3,7 +3,16 @@ import type { GithubConfig } from '../../api/github';
 import type { MealEntry, Plans, Settings, WeekPlan } from '../../types';
 import { makeRecipe, weekPlanWith } from '../../testing/fixtures';
 import { emptyWeekPlan } from '../../engine/planModel';
-import { mealHeader, entryRows, newManualEntry, rerollSlot } from './mealDetailLogic';
+import {
+  mealHeader,
+  entryRows,
+  newManualEntry,
+  newPlannedEntry,
+  swapSide,
+  addSalad,
+  unpairedMainHint,
+  rerollSlot,
+} from './mealDetailLogic';
 
 const WEEK = '2026-W30';
 
@@ -74,6 +83,7 @@ describe('entryRows', () => {
       entryId: 'e1',
       displayName: 'Guláš',
       recipeLinks: [{ id: 'r1', name: 'Guláš', deleted: false }],
+      components: [{ id: 'r1', name: 'Guláš', deleted: false, roleLabel: null, removal: { kind: 'entry' } }],
       untriedBadge: false,
       portionsText: null,
       source: 'manual',
@@ -82,6 +92,7 @@ describe('entryRows', () => {
       entryId: 'e2',
       displayName: 'Rizoto',
       recipeLinks: [{ id: 'r2', name: 'Rizoto', deleted: false }],
+      components: [{ id: 'r2', name: 'Rizoto', deleted: false, roleLabel: null, removal: { kind: 'entry' } }],
       untriedBadge: false,
       portionsText: null,
       source: 'auto',
@@ -135,6 +146,223 @@ describe('entryRows', () => {
       { day: 'wed', slot: 'dinner', entries: [{ id: 'e1', recipeIds: ['r1'], source: 'manual' }] },
     ]);
     expect(entryRows(plan, 'wed', 'dinner', [r])[0].untriedBadge).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// entryRows: component classification rule (feature 004 step 7)
+// ---------------------------------------------------------------------------
+
+describe('entryRows components (classification rule)', () => {
+  it('labels a composed [main, side] entry: main -> "hlavní jídlo", side -> "příloha"', () => {
+    const main = makeRecipe({ id: 'm1', name: 'Kuře', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const side = makeRecipe({ id: 's1', name: 'Rýže', componentType: 'side' });
+    const plan = planWithEntries([
+      { day: 'wed', slot: 'dinner', entries: [{ id: 'e1', recipeIds: ['m1', 's1'], source: 'manual' }] },
+    ]);
+    const row = entryRows(plan, 'wed', 'dinner', [main, side])[0];
+    expect(row.components).toEqual([
+      { id: 'm1', name: 'Kuře', deleted: false, roleLabel: 'hlavní jídlo', removal: { kind: 'entry' } },
+      { id: 's1', name: 'Rýže', deleted: false, roleLabel: 'příloha', removal: { kind: 'component', nextRecipeIds: ['m1'] } },
+    ]);
+  });
+
+  it('a deleted non-primary component is opaque: deleted fallback name, no role label, escape-hatch removal', () => {
+    const main = makeRecipe({ id: 'm1', name: 'Kuře', componentType: 'main', pairings: { sides: ['gone'], salads: [] } });
+    const plan = planWithEntries([
+      { day: 'wed', slot: 'dinner', entries: [{ id: 'e1', recipeIds: ['m1', 'gone'], source: 'manual' }] },
+    ]);
+    const row = entryRows(plan, 'wed', 'dinner', [main])[0];
+    expect(row.components[1]).toEqual({
+      id: 'gone',
+      name: 'smazaný recept',
+      deleted: true,
+      roleLabel: null,
+      removal: { kind: 'component', nextRecipeIds: ['m1'] },
+    });
+  });
+
+  it('a re-typed non-primary component is opaque: real name kept, no role label', () => {
+    const main = makeRecipe({ id: 'm1', name: 'Kuře', componentType: 'main', pairings: { sides: [], salads: [] } });
+    const retyped = makeRecipe({ id: 'r1', name: 'Rýže', componentType: 'full' }); // was side, now re-typed
+    const plan = planWithEntries([
+      { day: 'wed', slot: 'dinner', entries: [{ id: 'e1', recipeIds: ['m1', 'r1'], source: 'manual' }] },
+    ]);
+    const row = entryRows(plan, 'wed', 'dinner', [main, retyped])[0];
+    expect(row.components[1]).toEqual({
+      id: 'r1',
+      name: 'Rýže',
+      deleted: false,
+      roleLabel: null,
+      removal: { kind: 'component', nextRecipeIds: ['m1'] },
+    });
+  });
+
+  it('a deleted primary shows the fallback, no role label, and removal is still entry-kind', () => {
+    const plan = planWithEntries([
+      { day: 'wed', slot: 'dinner', entries: [{ id: 'e1', recipeIds: ['gone'], source: 'manual' }] },
+    ]);
+    const row = entryRows(plan, 'wed', 'dinner', [])[0];
+    expect(row.components).toEqual([
+      { id: 'gone', name: 'smazaný recept', deleted: true, roleLabel: null, removal: { kind: 'entry' } },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// swapSide (feature 004 step 7)
+// ---------------------------------------------------------------------------
+
+describe('swapSide', () => {
+  it('returns [] when the primary is not a main', () => {
+    const full = makeRecipe({ id: 'f1', componentType: 'full' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['f1'], source: 'manual' };
+    expect(swapSide(entry, [full], settings())).toEqual([]);
+  });
+
+  it('returns [] when the main has no paired sides', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: [], salads: [] } });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1'], source: 'manual' };
+    expect(swapSide(entry, [main], settings())).toEqual([]);
+  });
+
+  it('lists paired sides, marks the current one, flags a blocked one, and replaces it in nextRecipeIds', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: ['s1', 's2'], salads: [] } });
+    const s1 = makeRecipe({ id: 's1', name: 'Rýže', componentType: 'side', ingredients: [{ name: 'rýže' }] });
+    const s2 = makeRecipe({ id: 's2', name: 'Houbová omáčka', componentType: 'side', ingredients: [{ name: 'houby' }] });
+    const blockedSettings = settings({ persons: [{ name: 'Petr', blocked: ['houby'] }, { name: 'Jana', blocked: [] }] });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1', 's1'], source: 'manual' };
+
+    expect(swapSide(entry, [main, s1, s2], blockedSettings)).toEqual([
+      { id: 's1', name: 'Rýže', current: true, blocked: false, nextRecipeIds: ['m1', 's1'] },
+      { id: 's2', name: 'Houbová omáčka', current: false, blocked: true, nextRecipeIds: ['m1', 's2'] },
+    ]);
+  });
+
+  it('marks no option current when the current side component is stale (opaque)', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const s1 = makeRecipe({ id: 's1', name: 'Rýže', componentType: 'side' });
+    // 'stale' occupies the accompaniment slot but no longer resolves to 'side'.
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1', 'stale'], source: 'manual' };
+
+    const options = swapSide(entry, [main, s1], settings());
+    expect(options).toEqual([{ id: 's1', name: 'Rýže', current: false, blocked: false, nextRecipeIds: ['m1', 's1'] }]);
+  });
+
+  it('replaces the FIRST side component when two side components exist', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: ['s1', 's2'], salads: [] } });
+    const s1 = makeRecipe({ id: 's1', name: 'Rýže', componentType: 'side' });
+    const s2 = makeRecipe({ id: 's2', name: 'Brambory', componentType: 'side' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1', 's1', 's2'], source: 'manual' };
+
+    const options = swapSide(entry, [main, s1, s2], settings());
+    expect(options.find((o) => o.id === 's2')?.nextRecipeIds).toEqual(['m1', 's2', 's2']);
+  });
+
+  it('appends when the entry has no side/opaque component to replace', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const s1 = makeRecipe({ id: 's1', name: 'Rýže', componentType: 'side' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1'], source: 'manual' };
+
+    const options = swapSide(entry, [main, s1], settings());
+    expect(options).toEqual([{ id: 's1', name: 'Rýže', current: false, blocked: false, nextRecipeIds: ['m1', 's1'] }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addSalad (feature 004 step 7)
+// ---------------------------------------------------------------------------
+
+describe('addSalad', () => {
+  it('returns [] when the primary is not a main', () => {
+    const full = makeRecipe({ id: 'f1', componentType: 'full' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['f1'], source: 'manual' };
+    expect(addSalad(entry, [full])).toEqual([]);
+  });
+
+  it('returns [] when the main has no paired salads', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: [], salads: [] } });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1'], source: 'manual' };
+    expect(addSalad(entry, [main])).toEqual([]);
+  });
+
+  it('returns [] when a salad-classified component is already present', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: [], salads: ['sal1'] } });
+    const sal1 = makeRecipe({ id: 'sal1', name: 'Salát', componentType: 'salad' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1', 'sal1'], source: 'manual' };
+    expect(addSalad(entry, [main, sal1])).toEqual([]);
+  });
+
+  it('lists paired salads as one-tap options that append', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: [], salads: ['sal1'] } });
+    const sal1 = makeRecipe({ id: 'sal1', name: 'Salát', componentType: 'salad' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1'], source: 'manual' };
+    expect(addSalad(entry, [main, sal1])).toEqual([{ id: 'sal1', name: 'Salát', nextRecipeIds: ['m1', 'sal1'] }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// unpairedMainHint (feature 004 step 7)
+// ---------------------------------------------------------------------------
+
+describe('unpairedMainHint', () => {
+  it('returns null when the primary is not a main', () => {
+    const full = makeRecipe({ id: 'f1', componentType: 'full' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['f1'], source: 'manual' };
+    expect(unpairedMainHint(entry, [full], settings())).toBeNull();
+  });
+
+  it('returns null when the main has >=1 valid paired side', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const s1 = makeRecipe({ id: 's1', componentType: 'side' });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1'], source: 'manual' };
+    expect(unpairedMainHint(entry, [main, s1], settings())).toBeNull();
+  });
+
+  it('returns the hint text and edit link when the main has zero valid paired sides', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: [], salads: [] } });
+    const entry: MealEntry = { id: 'e1', recipeIds: ['m1'], source: 'manual' };
+    expect(unpairedMainHint(entry, [main], settings())).toEqual({
+      text: 'Recept nemá přiřazené přílohy',
+      editHref: '#/recepty/m1',
+    });
+  });
+
+  it('returns null for a deleted primary', () => {
+    const entry: MealEntry = { id: 'e1', recipeIds: ['gone'], source: 'manual' };
+    expect(unpairedMainHint(entry, [], settings())).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// newPlannedEntry (feature 004 step 7)
+// ---------------------------------------------------------------------------
+
+describe('newPlannedEntry', () => {
+  it('places a full recipe bare, making zero rng calls', () => {
+    const full = makeRecipe({ id: 'f1', componentType: 'full' });
+    const rng = vi.fn(() => 0);
+    const entry = newPlannedEntry('f1', [full], [], settings(), rng, () => 'new-1');
+    expect(entry).toEqual({ id: 'new-1', recipeIds: ['f1'], source: 'manual' });
+    expect(rng).not.toHaveBeenCalled();
+  });
+
+  it('composes a paired main into [main, side]', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const s1 = makeRecipe({ id: 's1', componentType: 'side' });
+    const entry = newPlannedEntry('m1', [main, s1], [], settings(), () => 0, () => 'new-1');
+    expect(entry).toEqual({ id: 'new-1', recipeIds: ['m1', 's1'], source: 'manual' });
+  });
+
+  it('places an unpaired main bare', () => {
+    const main = makeRecipe({ id: 'm1', componentType: 'main', pairings: { sides: [], salads: [] } });
+    const entry = newPlannedEntry('m1', [main], [], settings(), () => 0, () => 'new-1');
+    expect(entry).toEqual({ id: 'new-1', recipeIds: ['m1'], source: 'manual' });
+  });
+
+  it('places an unknown recipeId bare (defensive)', () => {
+    const entry = newPlannedEntry('ghost', [], [], settings(), () => 0, () => 'new-1');
+    expect(entry).toEqual({ id: 'new-1', recipeIds: ['ghost'], source: 'manual' });
   });
 });
 

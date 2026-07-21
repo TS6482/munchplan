@@ -4,8 +4,10 @@
  * testable under Vitest's node environment.
  */
 
-import type { Effort, Ingredient, MealSlotKey, Recipe, RecipeCategory } from '../../types';
+import type { ComponentType, Effort, Ingredient, MealSlotKey, Pairings, Recipe, RecipeCategory } from '../../types';
 import { SLOT_ORDER } from '../../types';
+import { normalizeName } from '../../engine/normalize';
+import { pairedSalads, pairedSides } from '../../engine/composition';
 
 // ---------------------------------------------------------------------------
 // Form shape
@@ -26,6 +28,24 @@ export interface FormValues {
   portionsStr: string;
   ingredients: IngredientFormRow[];
   suitableFor: MealSlotKey[];
+  componentType: ComponentType;
+  pairings: Pairings;
+}
+
+/** Default form values for a brand-new recipe: samostatné jídlo, no pairings. */
+export function emptyForm(): FormValues {
+  return {
+    name: '',
+    category: 'jiné',
+    effort: 'normal',
+    source: '',
+    notes: '',
+    portionsStr: '2',
+    ingredients: [{ name: '', amountStr: '', unit: '' }],
+    suitableFor: ['lunch', 'dinner'],
+    componentType: 'full',
+    pairings: { sides: [], salads: [] },
+  };
 }
 
 /** A validated recipe payload, still missing the persistence fields id/createdAt/updatedAt. */
@@ -45,6 +65,8 @@ export interface RecipeDraft {
   ingredients: Ingredient[];
   untried: boolean;
   suitableFor: MealSlotKey[];
+  componentType: ComponentType;
+  pairings: Pairings;
 }
 
 export interface FullFormErrors {
@@ -160,11 +182,13 @@ export function validateFullForm(values: FormValues): FullFormResult {
       ingredients,
       untried: false,
       suitableFor: values.suitableFor,
+      componentType: values.componentType,
+      pairings: values.pairings,
     },
   };
 }
 
-/** Minimal inbox form: name required only (~15 s flow); no ingredients, untried. */
+/** Minimal inbox form: name required only (~15 s flow); no ingredients, untried, always full. */
 export function validateQuickAdd(name: string, source: string): FullFormResult {
   const trimmed = name.trim();
   if (!trimmed) return { ok: false, errors: { name: 'Vyplňte název receptu' } };
@@ -179,6 +203,8 @@ export function validateQuickAdd(name: string, source: string): FullFormResult {
       ingredients: [],
       untried: true,
       suitableFor: ['lunch', 'dinner'],
+      componentType: 'full',
+      pairings: { sides: [], salads: [] },
     },
   };
 }
@@ -211,6 +237,8 @@ export function toRecipe(
       ingredients: draft.ingredients,
       updatedAt: now,
       suitableFor: draft.suitableFor,
+      componentType: draft.componentType,
+      pairings: draft.pairings,
     };
   }
   return {
@@ -226,8 +254,8 @@ export function toRecipe(
     createdAt: now,
     updatedAt: now,
     suitableFor: draft.suitableFor,
-    componentType: 'full',
-    pairings: { sides: [], salads: [] },
+    componentType: draft.componentType,
+    pairings: draft.pairings,
   };
 }
 
@@ -246,6 +274,8 @@ export function fromRecipe(recipe: Recipe): FormValues {
       unit: ing.unit ?? '',
     })),
     suitableFor: recipe.suitableFor,
+    componentType: recipe.componentType,
+    pairings: recipe.pairings,
   };
 }
 
@@ -253,6 +283,48 @@ export function fromRecipe(recipe: Recipe): FormValues {
 export function toggleSlotSelection(current: MealSlotKey[], slot: MealSlotKey): MealSlotKey[] {
   const next = current.includes(slot) ? current.filter((s) => s !== slot) : [...current, slot];
   return SLOT_ORDER.filter((s) => next.includes(s));
+}
+
+// ---------------------------------------------------------------------------
+// Pairing selection (feature 004 step 6)
+// ---------------------------------------------------------------------------
+
+/** Toggles `id`'s membership in `current`, keeping insertion order (unlike `toggleSlotSelection` there is no canonical sort). */
+export function togglePairing(current: string[], id: string): string[] {
+  return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
+}
+
+export interface PairingPools {
+  sides: Recipe[];
+  salads: Recipe[];
+}
+
+/**
+ * Candidate pools for the Typ receptu = main form's pairing sections:
+ * recipes currently typed `side`/`salad`, Czech-sorted by name, excluding
+ * `editedId` (a recipe can't pair with itself).
+ */
+export function pairingPools(recipes: Recipe[], editedId: string | undefined): PairingPools {
+  const byName = (a: Recipe, b: Recipe) => a.name.localeCompare(b.name, 'cs');
+  return {
+    sides: recipes.filter((r) => r.componentType === 'side' && r.id !== editedId).sort(byName),
+    salads: recipes.filter((r) => r.componentType === 'salad' && r.id !== editedId).sort(byName),
+  };
+}
+
+/** Filters a pairing pool to names containing `query` (diacritic/case-insensitive); empty query returns the pool unchanged. */
+export function filterPool(pool: Recipe[], query: string): Recipe[] {
+  const q = normalizeName(query);
+  if (!q) return pool;
+  return pool.filter((r) => normalizeName(r.name).includes(q));
+}
+
+/** Names of `recipe`'s current paired sides/salads, for the detail-page chip lines. Stale (deleted/re-typed) ids are skipped. */
+export function pairingChips(recipe: Recipe, recipes: Recipe[]): { sides: string[]; salads: string[] } {
+  return {
+    sides: pairedSides(recipe, recipes).map((r) => r.name),
+    salads: pairedSalads(recipe, recipes).map((r) => r.name),
+  };
 }
 
 // ---------------------------------------------------------------------------

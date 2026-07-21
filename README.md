@@ -8,10 +8,13 @@ MunchPlan je týdenní plánovač jídel pro dvoučlennou domácnost. Aplikace u
 - **automaticky doplnit návrhy** ("Doplnit návrhy") — vážený náhodný výběr z receptů podle slev, rotace, dietních pravidel a vhodnosti receptu pro daný slot; "Přegenerovat" vymění jen automaticky doplněná jídla, ruční výběry zůstávají,
 - otevřít **detail jídla** (klepnutím na slot) — přidat víc jídel do jednoho slotu (návštěva), odebrat je, vybrat z návrhů nebo ze všech receptů,
 - vést kolekci receptů a inbox "vyzkoušet" pro nápady, které ještě nebyly uvařené; každý recept má "vhodné pro" (kterým jídlům odpovídá),
+- **skládat jídla z komponent** — recept může být typ hlavní/příloha/salát; hlavní jídlo si deklaruje své přílohy a saláty; návrhy a automatické doplnění pokládají kompletní jídlo (hlavní + příloha, příloha preferuje slevy); salát se přidává jedním klepnutím na detailu jídla; výběr ze všech receptů vkládá recept samostatně,
 - sestavit nákupní seznam ze všech naplánovaných jídel týdne, včetně odečtení toho, co už je doma (spíž),
 - vést ruční seznam aktuálních slev.
 
 Postavena na React + TypeScript + Vite, data se ukládají do soukromého GitHub repozitáře.
+
+Aktualizace na skládaná jídla je bezpečná — starší verze aplikace složená jídla jen zobrazí jako spojené názvy (žádná migrace dat, žádný požadavek na souběžnou aktualizaci obou zařízení).
 
 ## Nastavení (jednorázově)
 

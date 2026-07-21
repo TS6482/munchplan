@@ -220,6 +220,11 @@ describe('czechWarnings', () => {
   it('returns an empty array for no warnings', () => {
     expect(czechWarnings([])).toEqual([]);
   });
+
+  it('formats an unpairedMain warning (feature 004 step 2)', () => {
+    const warnings: Warning[] = [{ kind: 'unpairedMain' }];
+    expect(czechWarnings(warnings)).toEqual(['Recept nemá přiřazené přílohy']);
+  });
 });
 
 describe('suggestionView', () => {
@@ -232,6 +237,7 @@ describe('suggestionView', () => {
       untriedBadge: true,
       saleText: 'Ve slevě: kuřecí',
       freshText: 'Nevařeno',
+      compositionBadge: null,
     });
   });
 
@@ -253,6 +259,21 @@ describe('suggestionView', () => {
     const r = recipe({ id: 'r1', name: 'Cokoliv' });
     const s = suggestion({ recipe: r, untried: false });
     expect(suggestionView(s).untriedBadge).toBe(false);
+  });
+
+  it('sets compositionBadge to "hlavní + příloha" for a main recipe (feature 004 step 9)', () => {
+    const r = recipe({ id: 'r1', name: 'Kuře', componentType: 'main', pairings: { sides: ['s1'], salads: [] } });
+    const s = suggestion({ recipe: r });
+    expect(suggestionView(s).compositionBadge).toBe('hlavní + příloha');
+  });
+
+  it('sets compositionBadge to null for a full recipe, keeping sale/fresh texts unchanged (same fixture)', () => {
+    const r = recipe({ id: 'r1', name: 'Kuřecí stehna' });
+    const s = suggestion({ recipe: r, matchedSaleIngredients: ['kuřecí'], untried: true, weeksSinceCooked: Infinity });
+    const view = suggestionView(s);
+    expect(view.compositionBadge).toBeNull();
+    expect(view.saleText).toBe('Ve slevě: kuřecí');
+    expect(view.freshText).toBe('Nevařeno');
   });
 });
 
@@ -285,6 +306,13 @@ describe('pickerEntries', () => {
     const b = recipe({ id: 'b', name: 'Boloňské špagety' });
     const entries = pickerEntries({ recipes: [a, b], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
     expect(entries.map((e) => e.recipe.id)).toEqual(['b', 'a']);
+  });
+
+  it('marks a side recipe as selectable with no composition warning (AC5)', () => {
+    const r = recipe({ id: 'r1', name: 'Rýže', componentType: 'side' });
+    const entries = pickerEntries({ recipes: [r], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(entries[0].plannable).toBe(true);
+    expect(entries[0].warnings).toEqual([]);
   });
 });
 
@@ -515,5 +543,35 @@ describe('store integration: addMealEntry + suggestion recompute (AC4)', () => {
     // because "max 2x maso" is already met by r1+r2.
     expect(result.map((s) => s.recipe.id)).not.toContain('r3');
     expect(result).toEqual([]);
+  });
+});
+
+describe('side/salad picker warnings (feature 004 review fix)', () => {
+  it('a side gets only the blocked warning in slot context - no unsuitable/rotation noise', async () => {
+    const { warningsFor } = await import('../../engine/suggest');
+    const { makeRecipe, weekPlanWith } = await import('../../testing/fixtures');
+    const side = makeRecipe({
+      id: 's1',
+      componentType: 'side',
+      suitableFor: ['lunch', 'dinner'],
+      ingredients: [{ name: 'smetana' }],
+    });
+    const input = {
+      recipes: [side],
+      plans: { '2026-W29': weekPlanWith([{ day: 'mon' as const, slot: 'dinner' as const, recipeId: 's1' }]) },
+      sales: [],
+      settings: {
+        persons: [
+          { name: 'A', blocked: ['smetana'] },
+          { name: 'B', blocked: [] },
+        ] as [{ name: string; blocked: string[] }, { name: string; blocked: string[] }],
+        dietRules: [],
+        rotationWeeks: 2,
+      },
+      targetWeek: '2026-W30',
+      slot: 'breakfast' as const,
+    };
+    const kinds = warningsFor(side, input).map((w) => w.kind);
+    expect(kinds).toEqual(['blocked']);
   });
 });
