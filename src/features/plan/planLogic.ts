@@ -1,12 +1,13 @@
 /**
- * Pure view-model for the weekly plan screen (step 13) — no React, no store,
- * no fetch. Wraps engine functions (week/suggest/quota) and recipe lookups
- * into shapes the thin PlanPage/SuggestionsPanel/RecipePicker components
- * render directly.
+ * Pure view-model for the weekly plan screen (steps 3, 10), shared with the
+ * meal detail page — no React, no store, no fetch. Wraps engine functions
+ * (week/suggest/quota/autoFill) and recipe lookups into shapes the thin
+ * PlanPage/MealDetailPage/RecipePicker components render directly.
  */
 
-import type { DietRule, IsoDay, Plans, Recipe, WeekKey } from '../../types';
-import { ISO_DAYS, currentWeek, dateOfDay, nextWeek } from '../../engine/week';
+import type { DietRule, IsoDay, MealSlotKey, Plans, Recipe, SaleItem, Settings, WeekKey, WeekPlan } from '../../types';
+import { SLOT_ORDER } from '../../types';
+import { ISO_DAYS, currentWeek, dateOfDay, mondayOf, nextWeek } from '../../engine/week';
 import { evaluateQuotas } from '../../engine/quota';
 import { normalizeName } from '../../engine/normalize';
 import {
@@ -16,8 +17,11 @@ import {
   type Suggestion,
   type Warning,
 } from '../../engine/suggest';
+import { buildAutoFill, type AutoFillPlacement, type AutoFillTarget } from '../../engine/autoFill';
 import { canBePlanned } from '../recipes/recipeFormLogic';
-import { SLOT_ACCUSATIVE } from '../../components/slotLabels';
+import { SLOT_ACCUSATIVE, SLOT_LABELS } from '../../components/slotLabels';
+import { routeHash } from '../../router/router';
+import { entryRows } from './mealDetailLogic';
 
 // ---------------------------------------------------------------------------
 // Week toggle
@@ -37,7 +41,7 @@ export function weekChoices(now: Date): WeekChoice[] {
 }
 
 // ---------------------------------------------------------------------------
-// Day rows
+// Day labels / dates (shared with mealDetailLogic)
 // ---------------------------------------------------------------------------
 
 export const DAY_LABELS: Record<IsoDay, string> = {
@@ -50,58 +54,182 @@ export const DAY_LABELS: Record<IsoDay, string> = {
   sun: 'Ne',
 };
 
-export interface DayRow {
-  day: IsoDay;
-  dayLabel: string;
-  date: string;
-  /** Id of the day's first dinner-slot entry, if any — target for the ✕ remove action. */
-  entryId: string | null;
-  recipeId: string | null;
-  recipeName: string | null;
-  deleted: boolean;
-}
-
 /** 'YYYY-MM-DD' -> Czech short date 'D.M.' (no leading zeros). */
 export function czechDate(isoDate: string): string {
   const [, month, day] = isoDate.split('-');
   return `${Number(day)}.${Number(month)}.`;
 }
 
+// ---------------------------------------------------------------------------
+// Slot activation (step 10)
+// ---------------------------------------------------------------------------
+
 /**
- * 7 Mon->Sun rows for `weekKey`, each rendering the dinner slot's first entry
- * (interim wiring pinned by step 3's plan — the meal detail page in step 9
- * shows every entry of every slot; this row stays a one-line summary).
+ * Which slots render for `week`: the stored week's `activeSlots` wins
+ * (including an explicitly stored empty array — a "we're away" week is
+ * valid); otherwise the nearest *earlier* stored week's `activeSlots`
+ * (compared via `mondayOf`, never string sort, so year boundaries compare
+ * correctly); otherwise `['dinner']` (first-ever-week default).
  */
-export function dayRows(weekKey: WeekKey, plans: Plans, recipes: Recipe[]): DayRow[] {
-  const plan = plans[weekKey];
-  const byId = new Map(recipes.map((r) => [r.id, r]));
+export function defaultActiveSlots(plans: Plans, week: WeekKey): MealSlotKey[] {
+  const stored = plans[week];
+  if (stored) return stored.activeSlots;
 
-  return ISO_DAYS.map((day) => {
-    const entry = plan?.days[day]?.dinner[0];
-    const recipeId = entry?.recipeIds[0] ?? null;
-    let recipeName: string | null = null;
-    let deleted = false;
+  const targetMonday = mondayOf(week).getTime();
+  let nearestKey: WeekKey | null = null;
+  let nearestMonday = -Infinity;
 
-    if (recipeId !== null) {
-      const found = byId.get(recipeId);
-      if (found) {
-        recipeName = found.name;
-      } else {
-        recipeName = 'smazaný recept';
-        deleted = true;
-      }
+  for (const key of Object.keys(plans)) {
+    const monday = mondayOf(key).getTime();
+    if (monday < targetMonday && monday > nearestMonday) {
+      nearestMonday = monday;
+      nearestKey = key;
     }
+  }
 
-    return {
-      day,
-      dayLabel: DAY_LABELS[day],
-      date: czechDate(dateOfDay(weekKey, day)),
-      entryId: entry?.id ?? null,
-      recipeId,
-      recipeName,
-      deleted,
-    };
-  });
+  return nearestKey ? plans[nearestKey].activeSlots : ['dinner'];
+}
+
+export interface ToggleSlotResult {
+  op: 'activate' | 'deactivate';
+  needsConfirm: boolean;
+  entryCount: number;
+  confirmText?: string;
+}
+
+const DEACTIVATE_CONFIRM_TEXT = 'Slot obsahuje jídla — odebrat je?';
+
+/**
+ * What toggling `slot` should do for `weekPlan`: activating never confirms;
+ * deactivating an empty slot doesn't either; deactivating a slot holding
+ * entries (summed across all 7 days) needs confirmation with Czech copy —
+ * the caller shows it (`window.confirm`) and only then issues
+ * `deactivateSlot`.
+ */
+export function toggleSlotResult(weekPlan: WeekPlan | undefined, slot: MealSlotKey): ToggleSlotResult {
+  const isActive = weekPlan?.activeSlots.includes(slot) ?? false;
+  if (!isActive) {
+    return { op: 'activate', needsConfirm: false, entryCount: 0 };
+  }
+
+  const entryCount = weekPlan ? ISO_DAYS.reduce((sum, day) => sum + weekPlan.days[day][slot].length, 0) : 0;
+  if (entryCount === 0) {
+    return { op: 'deactivate', needsConfirm: false, entryCount: 0 };
+  }
+  return { op: 'deactivate', needsConfirm: true, entryCount, confirmText: DEACTIVATE_CONFIRM_TEXT };
+}
+
+// ---------------------------------------------------------------------------
+// Day cards (step 10; supersedes dayRows)
+// ---------------------------------------------------------------------------
+
+export interface DayCardEntry {
+  entryId: string;
+  displayName: string;
+  untriedBadge: boolean;
+}
+
+export interface DayCardLine {
+  slot: MealSlotKey;
+  slotLabel: string;
+  entries: DayCardEntry[];
+  emptyText: string;
+  mealDetailHash: string;
+}
+
+export interface DayCard {
+  day: IsoDay;
+  dayLabel: string;
+  dateText: string;
+  lines: DayCardLine[];
+}
+
+/**
+ * 7 Mon->Sun cards for `week`, one line per slot in `activeSlots` (in
+ * `SLOT_ORDER`) — inactive slots are simply absent from the card; their
+ * entries stay intact in `plans`, just unrendered. Entry display reuses
+ * `entryRows` (deleted-recipe fallback, multi-recipe name join, untried
+ * badge) so the plan and meal detail screens never drift apart.
+ */
+export function dayCards(week: WeekKey, plans: Plans, recipes: Recipe[], activeSlots: MealSlotKey[]): DayCard[] {
+  const weekPlan = plans[week];
+  const active = new Set(activeSlots);
+
+  return ISO_DAYS.map((day) => ({
+    day,
+    dayLabel: DAY_LABELS[day],
+    dateText: czechDate(dateOfDay(week, day)),
+    lines: SLOT_ORDER.filter((slot) => active.has(slot)).map((slot) => ({
+      slot,
+      slotLabel: SLOT_LABELS[slot],
+      entries: entryRows(weekPlan, day, slot, recipes).map((row) => ({
+        entryId: row.entryId,
+        displayName: row.displayName,
+        untriedBadge: row.untriedBadge,
+      })),
+      emptyText: '—',
+      mealDetailHash: routeHash({ name: 'mealDetail', week, day, slot }),
+    })),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Auto-fill / reroll wiring (step 10)
+// ---------------------------------------------------------------------------
+
+export interface AutoFillRunInput {
+  recipes: Recipe[];
+  plans: Plans;
+  sales: SaleItem[];
+  settings: Settings;
+  week: WeekKey;
+  activeSlots: MealSlotKey[];
+}
+
+export interface ReplaceAutoEntriesOp {
+  week: WeekKey;
+  placements: AutoFillPlacement[];
+}
+
+export interface AutoFillRunResult {
+  op: ReplaceAutoEntriesOp | null;
+  hints: AutoFillTarget[];
+}
+
+/**
+ * "Doplnit návrhy": fill-mode `buildAutoFill` over `input`'s active slots,
+ * mapped to a single `replaceAutoEntries`-shaped op (`null` when the pass
+ * placed nothing — no pointless PUT). `hints` are the (day, slot) pairs with
+ * no eligible candidate, for the transient "Žádný vhodný recept" UI hint.
+ */
+export function runAutoFill(input: AutoFillRunInput, rng: () => number, idFn: () => string): AutoFillRunResult {
+  const { placements, emptySlots } = buildAutoFill({ ...input, mode: { kind: 'fill' }, rng, idFn });
+  return {
+    op: placements.length > 0 ? { week: input.week, placements } : null,
+    hints: emptySlots,
+  };
+}
+
+/**
+ * "Přegenerovat" for the whole week: reroll-mode `buildAutoFill` (targets
+ * every active slot holding >=1 auto entry; manual entries are never
+ * touched). `op` is `null` when the week has no auto entries to reroll.
+ */
+export function runWeekReroll(input: AutoFillRunInput, rng: () => number, idFn: () => string): AutoFillRunResult {
+  const { placements, emptySlots } = buildAutoFill({ ...input, mode: { kind: 'reroll' }, rng, idFn });
+  return {
+    op: placements.length > 0 ? { week: input.week, placements } : null,
+    hints: emptySlots,
+  };
+}
+
+/** True when any *active* slot of `weekPlan` holds a `source: 'auto'` entry — drives the "Přegenerovat" button's visibility. */
+export function hasAutoEntries(weekPlan: WeekPlan | undefined, activeSlots: MealSlotKey[]): boolean {
+  if (!weekPlan) return false;
+  const active = new Set(activeSlots);
+  return ISO_DAYS.some((day) =>
+    SLOT_ORDER.some((slot) => active.has(slot) && weekPlan.days[day][slot].some((e) => e.source === 'auto')),
+  );
 }
 
 // ---------------------------------------------------------------------------

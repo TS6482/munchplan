@@ -37,7 +37,7 @@ const TABS: Tab[] = [
 function renderPage(route: Route) {
   switch (route.name) {
     case 'plan':
-      return <PlanPage />;
+      return <PlanPage week={route.week} />;
     case 'mealDetail':
       return <MealDetailPage week={route.week} day={route.day} slot={route.slot} />;
     case 'recipes':
