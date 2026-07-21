@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GithubConfig } from '../api/github';
-import type { Pantry } from '../types';
+import type { Pantry, Plans } from '../types';
 import { makeRecipe } from '../testing/fixtures';
 import { DEFAULT_PANTRY } from './seed';
-import { upsertRecipe } from './ops';
+import { addMealEntry, normalizePlans, upsertRecipe } from './ops';
 
 vi.mock('../api/github', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/github')>();
@@ -273,6 +273,184 @@ describe('loadAll', () => {
     await useDataStore.getState().loadAll(cfg);
 
     expect(useDataStore.getState().status).toBe('authError');
+  });
+});
+
+describe('plans.json migration hardening (step 4)', () => {
+  const oldShapePlans = {
+    '2026-W30': {
+      days: { mon: 'r1', tue: null, wed: 'r2', thu: null, fri: 'r3', sat: null, sun: null },
+    },
+  };
+
+  it('full old-shape plans.json through loadAll -> state is new-shape: non-null days become vecere entries with legacy ids, activeSlots [dinner], nothing lost (AC1)', async () => {
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockImplementation(async (_cfg, path: string) => {
+      if (path === 'plans.json') return { data: oldShapePlans, sha: 'p-sha-legacy' };
+      return null;
+    });
+
+    await useDataStore.getState().loadAll(cfg);
+
+    const state = useDataStore.getState();
+    const week = (state.files.plans.data as Plans)['2026-W30'];
+    expect(week.activeSlots).toEqual(['dinner']);
+    expect(week.days.mon.dinner).toEqual([{ id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' }]);
+    expect(week.days.wed.dinner).toEqual([{ id: 'legacy-2026-W30-wed', recipeIds: ['r2'], source: 'manual' }]);
+    expect(week.days.fri.dinner).toEqual([{ id: 'legacy-2026-W30-fri', recipeIds: ['r3'], source: 'manual' }]);
+    // Empty legacy days: nothing lost, nothing invented.
+    expect(week.days.tue.dinner).toEqual([]);
+    expect(week.days.thu.dinner).toEqual([]);
+    expect(week.days.sat.dinner).toEqual([]);
+    expect(week.days.sun.dinner).toEqual([]);
+    // Other slots present and empty (nothing lost, nothing extra).
+    expect(week.days.mon.breakfast).toEqual([]);
+    expect(week.days.mon.lunch).toEqual([]);
+    expect(week.days.mon.snack).toEqual([]);
+    expect(state.files.plans.sha).toBe('p-sha-legacy');
+  });
+
+  it('after loading an old-shape plans.json, the NEXT plan mutation persists the new shape (no string day values in the resulting body)', async () => {
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockImplementation(async (_cfg, path: string) => {
+      if (path === 'plans.json') return { data: oldShapePlans, sha: 'p-sha-legacy' };
+      return null;
+    });
+    await useDataStore.getState().loadAll(cfg);
+
+    // Generic stand-in mirroring saveWithRetry's real no-conflict path
+    // (`apply(op, base.data)`) — this is the actual PUT-body contract.
+    saveWithRetryMock.mockImplementation(async (_apiCfg, _path, op, apply, base, emptyData) => ({
+      data: (apply as (o: unknown, remote: unknown) => unknown)(op, base?.data ?? emptyData),
+      sha: 'p-sha-next',
+    }));
+
+    const newEntry = { id: 'e-new', recipeIds: ['r-new'], source: 'manual' as const };
+    await useDataStore.getState().addMealEntry('2026-W30', 'tue', 'lunch', newEntry);
+
+    const body = useDataStore.getState().files.plans.data as Plans;
+    // The migrated legacy entries survive the round trip...
+    expect(body['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' },
+    ]);
+    expect(body['2026-W30'].days.tue.lunch).toEqual([newEntry]);
+    // ...and every day value in the body is a new-shape object, never a raw legacy string.
+    for (const day of Object.values(body['2026-W30'].days)) {
+      expect(typeof day).toBe('object');
+      expect(Array.isArray((day as { dinner: unknown }).dinner)).toBe(true);
+    }
+  });
+
+  it('writes the plans.json cache normalized after loading an old-shape file', async () => {
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockImplementation(async (_cfg, path: string) => {
+      if (path === 'plans.json') return { data: oldShapePlans, sha: 'p-sha-legacy' };
+      return null;
+    });
+
+    await useDataStore.getState().loadAll(cfg);
+
+    const cached = JSON.parse(
+      (localStorage as unknown as { getItem: (k: string) => string }).getItem('munchplan.cache.plans.json'),
+    ) as Plans;
+    expect(cached['2026-W30'].activeSlots).toEqual(['dinner']);
+    expect(cached['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' },
+    ]);
+    expect(typeof cached['2026-W30'].days.mon).toBe('object');
+  });
+
+  it('NetworkError during load hydrates an old-shape cached plans.json snapshot into the new shape (cache-path half of AC1)', async () => {
+    probeRepoMock.mockResolvedValue(undefined);
+    getFileMock.mockRejectedValue(new NetworkError());
+
+    vi.stubGlobal(
+      'localStorage',
+      makeLocalStorageMock({
+        'munchplan.cache.plans.json': JSON.stringify(oldShapePlans),
+      }),
+    );
+
+    await useDataStore.getState().loadAll(cfg);
+
+    const state = useDataStore.getState();
+    expect(state.status).toBe('ready');
+    expect(state.offline).toBe(true);
+    const week = (state.files.plans.data as Plans)['2026-W30'];
+    expect(week.activeSlots).toEqual(['dinner']);
+    expect(week.days.mon.dinner).toEqual([{ id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' }]);
+    expect(week.days.wed.dinner).toEqual([{ id: 'legacy-2026-W30-wed', recipeIds: ['r2'], source: 'manual' }]);
+  });
+
+  it('conflict retry: refetched remote is old-shape -> merged write is new-shape and the local op survives', async () => {
+    useDataStore.setState({
+      cfg,
+      files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha-1' } },
+    });
+
+    saveWithRetryMock.mockImplementation(async (_apiCfg, _path, op, apply) => ({
+      // Simulates saveWithRetry's real conflict path: first PUT 409s, refetch
+      // returns an old-shape remote (a not-yet-updated device's write),
+      // apply() re-derives the local intent on top of it (normalizing internally).
+      data: (apply as (o: unknown, remote: unknown) => unknown)(op, oldShapePlans),
+      sha: 'p-sha-after-conflict',
+    }));
+
+    const newEntry = { id: 'e-new', recipeIds: ['r-new'], source: 'manual' as const };
+    await useDataStore.getState().mutate('plans', addMealEntry('2026-W30', 'wed', 'lunch', newEntry));
+
+    const state = useDataStore.getState().files.plans.data as Plans;
+    // Local op's effect survives...
+    expect(state['2026-W30'].days.wed.lunch).toEqual([newEntry]);
+    // ...alongside the old-shape remote's data, fully migrated (new shape).
+    expect(state['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' },
+    ]);
+    expect(state['2026-W30'].days.fri.dinner).toEqual([
+      { id: 'legacy-2026-W30-fri', recipeIds: ['r3'], source: 'manual' },
+    ]);
+    expect(typeof state['2026-W30'].days.mon).toBe('object');
+  });
+
+  it('two-device double migration: device A loads+saves the old-shape file, device B (stale old-shape base) conflicts and re-applies -- no duplicated meals, both effects present', async () => {
+    // --- Device A: loads the old-shape file, then saves a meal edit. ---
+    useDataStore.setState({
+      cfg,
+      files: { ...useDataStore.getState().files, plans: { data: normalizePlans(oldShapePlans), sha: 'p-sha-remote-1' } },
+    });
+    const aEntry = { id: 'e-a', recipeIds: ['r-a'], source: 'manual' as const };
+    saveWithRetryMock.mockImplementationOnce(async (_apiCfg, _path, op, apply, base) => ({
+      data: (apply as (o: unknown, remote: unknown) => unknown)(op, base?.data),
+      sha: 'p-sha-after-a',
+    }));
+    await useDataStore.getState().addMealEntry('2026-W30', 'tue', 'lunch', aEntry);
+    const remoteAfterA = useDataStore.getState().files.plans.data as Plans;
+
+    // --- Device B: separately, still holds the STALE raw old-shape file as its local base. ---
+    useDataStore.setState({
+      cfg,
+      files: { ...useDataStore.getState().files, plans: { data: oldShapePlans as unknown as Plans, sha: 'p-sha-stale' } },
+    });
+    const bEntry = { id: 'e-b', recipeIds: ['r-b'], source: 'manual' as const };
+    saveWithRetryMock.mockImplementationOnce(async (_apiCfg, _path, op, apply) => ({
+      // Simulates: B's first PUT 409s against the stale sha; refetch returns
+      // A's already-normalized remote; apply() re-derives B's op on top of it.
+      data: (apply as (o: unknown, remote: unknown) => unknown)(op, remoteAfterA),
+      sha: 'p-sha-after-b',
+    }));
+    await useDataStore.getState().addMealEntry('2026-W30', 'fri', 'lunch', bEntry);
+
+    const final = useDataStore.getState().files.plans.data as Plans;
+    // No duplication of the migrated legacy entries (deterministic ids).
+    expect(final['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' },
+    ]);
+    expect(final['2026-W30'].days.wed.dinner).toEqual([
+      { id: 'legacy-2026-W30-wed', recipeIds: ['r2'], source: 'manual' },
+    ]);
+    // Both devices' effects present.
+    expect(final['2026-W30'].days.tue.lunch).toEqual([aEntry]);
+    expect(final['2026-W30'].days.fri.lunch).toEqual([bEntry]);
   });
 });
 

@@ -565,6 +565,73 @@ describe('replaceAutoEntries', () => {
   });
 });
 
+describe('AC9 concurrency matrix (step 4)', () => {
+  it('concurrent addMealEntry on the SAME week, DIFFERENT days: both survive sequential (re-)application', () => {
+    const remoteAfterA: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e-a', recipeIds: ['r-a'], source: 'manual' }),
+      {},
+    );
+    const result = applyPlansOp(
+      addMealEntry('2026-W30', 'wed', 'dinner', { id: 'e-b', recipeIds: ['r-b'], source: 'manual' }),
+      remoteAfterA,
+    );
+    expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'e-a', recipeIds: ['r-a'], source: 'manual' }]);
+    expect(result['2026-W30'].days.wed.dinner).toEqual([{ id: 'e-b', recipeIds: ['r-b'], source: 'manual' }]);
+  });
+
+  it('concurrent addMealEntry on the SAME day, DIFFERENT slots: both survive sequential (re-)application', () => {
+    const remoteAfterA: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'lunch', { id: 'e-a', recipeIds: ['r-a'], source: 'manual' }),
+      {},
+    );
+    const result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e-b', recipeIds: ['r-b'], source: 'manual' }),
+      remoteAfterA,
+    );
+    expect(result['2026-W30'].days.mon.lunch).toEqual([{ id: 'e-a', recipeIds: ['r-a'], source: 'manual' }]);
+    expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'e-b', recipeIds: ['r-b'], source: 'manual' }]);
+  });
+
+  it('same (week, day, slot), DIFFERENT entries (two adds): both kept, none dropped', () => {
+    const remoteAfterA: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'snack', { id: 'e-a', recipeIds: ['r-a'], source: 'manual' }),
+      {},
+    );
+    const result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'snack', { id: 'e-b', recipeIds: ['r-b'], source: 'manual' }),
+      remoteAfterA,
+    );
+    expect(result['2026-W30'].days.mon.snack.map((e) => e.id)).toEqual(['e-a', 'e-b']);
+  });
+
+  it('remove-vs-add interleaving, applied remove-then-add: X gone, Y present', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'x', recipeIds: ['r-x'], source: 'manual' }),
+      {},
+    );
+    // Device A removes X; device B adds Y — re-applied in this order.
+    let result = applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'x'), base);
+    result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'y', recipeIds: ['r-y'], source: 'manual' }),
+      result,
+    );
+    expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'y', recipeIds: ['r-y'], source: 'manual' }]);
+  });
+
+  it('remove-vs-add interleaving, applied add-then-remove (reversed order): X still gone, Y still present', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'x', recipeIds: ['r-x'], source: 'manual' }),
+      {},
+    );
+    let result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'y', recipeIds: ['r-y'], source: 'manual' }),
+      base,
+    );
+    result = applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'x'), result);
+    expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'y', recipeIds: ['r-y'], source: 'manual' }]);
+  });
+});
+
 describe('extras ops', () => {
   it('setCheck(false) applied to remote where the item is checked: unchecked, no resurrection', () => {
     const remote: Extras = { weeks: { '2026-W30': makeWeekExtras({ checks: { 'mouka|g': true } }) } };
