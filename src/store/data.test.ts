@@ -283,7 +283,7 @@ describe('plans.json migration hardening (step 4)', () => {
     },
   };
 
-  it('full old-shape plans.json through loadAll -> state is new-shape: non-null days become vecere entries with legacy ids, activeSlots [dinner], nothing lost (AC1)', async () => {
+  it('full old-shape plans.json through loadAll -> state is new-shape: non-null days become vecere entries with legacy ids, nothing lost (AC1)', async () => {
     probeRepoMock.mockResolvedValue(undefined);
     getFileMock.mockImplementation(async (_cfg, path: string) => {
       if (path === 'plans.json') return { data: oldShapePlans, sha: 'p-sha-legacy' };
@@ -294,7 +294,6 @@ describe('plans.json migration hardening (step 4)', () => {
 
     const state = useDataStore.getState();
     const week = (state.files.plans.data as Plans)['2026-W30'];
-    expect(week.activeSlots).toEqual(['dinner']);
     expect(week.days.mon.dinner).toEqual([{ id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' }]);
     expect(week.days.wed.dinner).toEqual([{ id: 'legacy-2026-W30-wed', recipeIds: ['r2'], source: 'manual' }]);
     expect(week.days.fri.dinner).toEqual([{ id: 'legacy-2026-W30-fri', recipeIds: ['r3'], source: 'manual' }]);
@@ -353,7 +352,6 @@ describe('plans.json migration hardening (step 4)', () => {
     const cached = JSON.parse(
       (localStorage as unknown as { getItem: (k: string) => string }).getItem('munchplan.cache.plans.json'),
     ) as Plans;
-    expect(cached['2026-W30'].activeSlots).toEqual(['dinner']);
     expect(cached['2026-W30'].days.mon.dinner).toEqual([
       { id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' },
     ]);
@@ -377,7 +375,6 @@ describe('plans.json migration hardening (step 4)', () => {
     expect(state.status).toBe('ready');
     expect(state.offline).toBe(true);
     const week = (state.files.plans.data as Plans)['2026-W30'];
-    expect(week.activeSlots).toEqual(['dinner']);
     expect(week.days.mon.dinner).toEqual([{ id: 'legacy-2026-W30-mon', recipeIds: ['r1'], source: 'manual' }]);
     expect(week.days.wed.dinner).toEqual([{ id: 'legacy-2026-W30-wed', recipeIds: ['r2'], source: 'manual' }]);
   });
@@ -607,26 +604,15 @@ describe('convenience actions', () => {
     expect(savedPath).toBe('recipes.json');
   });
 
-  it('activateSlot wraps mutate("plans", ops.activateSlot(...))', async () => {
+  it('clearDaySlot wraps mutate("plans", ops.clearDaySlot(...))', async () => {
     useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
     saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
 
-    await useDataStore.getState().activateSlot('2026-W30', 'breakfast');
+    await useDataStore.getState().clearDaySlot('2026-W30', 'mon', 'dinner');
 
     const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
     expect(savedPath).toBe('plans.json');
-    expect(savedOp).toEqual({ type: 'activateSlot', week: '2026-W30', slot: 'breakfast' });
-  });
-
-  it('deactivateSlot wraps mutate("plans", ops.deactivateSlot(...))', async () => {
-    useDataStore.setState({ cfg, files: { ...useDataStore.getState().files, plans: { data: {}, sha: 'p-sha' } } });
-    saveWithRetryMock.mockResolvedValue({ data: {}, sha: 'p-sha-2' });
-
-    await useDataStore.getState().deactivateSlot('2026-W30', 'dinner');
-
-    const [, savedPath, savedOp] = saveWithRetryMock.mock.calls[0];
-    expect(savedPath).toBe('plans.json');
-    expect(savedOp).toEqual({ type: 'deactivateSlot', week: '2026-W30', slot: 'dinner' });
+    expect(savedOp).toEqual({ type: 'clearDaySlot', week: '2026-W30', day: 'mon', slot: 'dinner' });
   });
 
   it('addMealEntry wraps mutate("plans", ops.addMealEntry(...))', async () => {

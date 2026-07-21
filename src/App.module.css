@@ -7,7 +7,10 @@
 .content {
   flex: 1;
   padding: var(--space-4);
-  padding-bottom: calc(var(--space-8) * 2 + var(--space-2) * 2);
+  /* Must clear the fixed tab bar: its content (~66px) PLUS the home-indicator
+     safe area on notched iPhones — the inset must be part of this padding,
+     otherwise the last rows scroll under the bar. */
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-8) * 3);
 }
 
 .gateHint {

@@ -131,21 +131,10 @@ export interface MealPlacement {
 }
 
 export type PlansOp =
-  | { type: 'activateSlot'; week: WeekKey; slot: MealSlotKey }
-  | { type: 'deactivateSlot'; week: WeekKey; slot: MealSlotKey }
   | { type: 'addMealEntry'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entry: MealEntry }
   | { type: 'removeMealEntry'; week: WeekKey; day: IsoDay; slot: MealSlotKey; entryId: string }
-  | { type: 'replaceAutoEntries'; week: WeekKey; placements: MealPlacement[] };
-
-/** Adds `slot` to the week's `activeSlots` (idempotent). Creates the week if missing. */
-export function activateSlot(week: WeekKey, slot: MealSlotKey): PlansOp {
-  return { type: 'activateSlot', week, slot };
-}
-
-/** Removes `slot` from `activeSlots` and deletes that slot's entries across all seven days. */
-export function deactivateSlot(week: WeekKey, slot: MealSlotKey): PlansOp {
-  return { type: 'deactivateSlot', week, slot };
-}
+  | { type: 'replaceAutoEntries'; week: WeekKey; placements: MealPlacement[] }
+  | { type: 'clearDaySlot'; week: WeekKey; day: IsoDay; slot: MealSlotKey };
 
 /** Appends `entry` to (week, day, slot); idempotent by `entry.id` (replaces an existing entry with the same id). */
 export function addMealEntry(week: WeekKey, day: IsoDay, slot: MealSlotKey, entry: MealEntry): PlansOp {
@@ -162,10 +151,9 @@ export function replaceAutoEntries(week: WeekKey, placements: MealPlacement[]): 
   return { type: 'replaceAutoEntries', week, placements };
 }
 
-/** Slot list in display order, deduplicated. */
-function sortSlots(slots: MealSlotKey[]): MealSlotKey[] {
-  const set = new Set(slots);
-  return SLOT_ORDER.filter((s) => set.has(s));
+/** Empties (week, day, slot)'s entry list instantly; a missing week is a no-op. */
+export function clearDaySlot(week: WeekKey, day: IsoDay, slot: MealSlotKey): PlansOp {
+  return { type: 'clearDaySlot', week, day, slot };
 }
 
 function normalizeMealEntry(raw: unknown): MealEntry | null {
@@ -197,20 +185,8 @@ function legacyDinnerDay(week: WeekKey, day: IsoDay, recipeId: string): DayPlan 
   };
 }
 
-/** Union of slots holding at least one entry, SLOT_ORDER-sorted, falling back to `['dinner']`. */
-function unionActiveSlots(days: Record<IsoDay, DayPlan>): MealSlotKey[] {
-  const withEntries = new Set<MealSlotKey>();
-  for (const day of ISO_DAYS) {
-    for (const slot of SLOT_ORDER) {
-      if (days[day][slot].length > 0) withEntries.add(slot);
-    }
-  }
-  const union = sortSlots([...withEntries]);
-  return union.length > 0 ? union : ['dinner'];
-}
-
 function normalizeWeek(raw: unknown, week: WeekKey): WeekPlan {
-  const weekObj = raw && typeof raw === 'object' ? (raw as { activeSlots?: unknown; days?: unknown }) : {};
+  const weekObj = raw && typeof raw === 'object' ? (raw as { days?: unknown }) : {};
   const rawDays = weekObj.days && typeof weekObj.days === 'object' ? (weekObj.days as Record<string, unknown>) : {};
 
   const days = {} as Record<IsoDay, DayPlan>;
@@ -225,20 +201,7 @@ function normalizeWeek(raw: unknown, week: WeekKey): WeekPlan {
     }
   }
 
-  let activeSlots: MealSlotKey[];
-  if (Array.isArray(weekObj.activeSlots)) {
-    if (weekObj.activeSlots.length === 0) {
-      // An explicitly stored empty selection is a valid "away week" (decision 6) — respected, not re-derived.
-      activeSlots = [];
-    } else {
-      const valid = sortSlots(weekObj.activeSlots.filter((s): s is MealSlotKey => SLOT_ORDER.includes(s as MealSlotKey)));
-      activeSlots = valid.length > 0 ? valid : unionActiveSlots(days);
-    }
-  } else {
-    activeSlots = unionActiveSlots(days);
-  }
-
-  return { activeSlots, days };
+  return { days };
 }
 
 /**
@@ -248,11 +211,11 @@ function normalizeWeek(raw: unknown, week: WeekKey): WeekPlan {
  * entry; `null`/missing -> empty slots; an object -> a validated `DayPlan`
  * (missing slot keys -> `[]`, malformed entries dropped: an entry needs a
  * string `id`, an array of string `recipeIds`, and `source` `'auto'` or
- * `'manual'`, else it's dropped). A week missing (or invalid) `activeSlots`
- * derives it as the union of slots holding entries, falling back to
- * `['dinner']`. Never throws on garbage; a non-object file yields `{}`; a
- * top-level key that isn't a valid week key (e.g. a stray `notes` field) is
- * dropped rather than normalized as a week.
+ * `'manual'`, else it's dropped). A feature-002 week's `activeSlots` field
+ * (if present) is silently stripped — it is no longer part of the model, and
+ * every day always renders all four slots. Never throws on garbage; a
+ * non-object file yields `{}`; a top-level key that isn't a valid week key
+ * (e.g. a stray `notes` field) is dropped rather than normalized as a week.
  */
 export function normalizePlans(data: unknown): Plans {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
@@ -268,23 +231,8 @@ export function applyPlansOp(op: PlansOp, data: Plans): Plans {
   const plans = normalizePlans(data);
 
   switch (op.type) {
-    case 'activateSlot': {
-      const base = plans[op.week] ?? emptyWeekPlan([]);
-      const activeSlots = sortSlots([...base.activeSlots, op.slot]);
-      return { ...plans, [op.week]: { ...base, activeSlots } };
-    }
-    case 'deactivateSlot': {
-      const base = plans[op.week];
-      if (!base) return plans;
-      const activeSlots = base.activeSlots.filter((s) => s !== op.slot);
-      const days = { ...base.days };
-      for (const day of ISO_DAYS) {
-        days[day] = { ...days[day], [op.slot]: [] };
-      }
-      return { ...plans, [op.week]: { activeSlots, days } };
-    }
     case 'addMealEntry': {
-      const base = plans[op.week] ?? emptyWeekPlan([op.slot]);
+      const base = plans[op.week] ?? emptyWeekPlan();
       const slotEntries = base.days[op.day][op.slot];
       const idx = slotEntries.findIndex((e) => e.id === op.entry.id);
       const newSlotEntries =
@@ -301,8 +249,7 @@ export function applyPlansOp(op: PlansOp, data: Plans): Plans {
       return { ...plans, [op.week]: { ...base, days } };
     }
     case 'replaceAutoEntries': {
-      const targetedSlots = sortSlots(op.placements.map((p) => p.slot));
-      const base = plans[op.week] ?? emptyWeekPlan(targetedSlots);
+      const base = plans[op.week] ?? emptyWeekPlan();
       let days = base.days;
       for (const placement of op.placements) {
         const manual = days[placement.day][placement.slot].filter((e) => e.source === 'manual');
@@ -311,6 +258,12 @@ export function applyPlansOp(op: PlansOp, data: Plans): Plans {
           [placement.day]: { ...days[placement.day], [placement.slot]: [...manual, ...placement.entries] },
         };
       }
+      return { ...plans, [op.week]: { ...base, days } };
+    }
+    case 'clearDaySlot': {
+      const base = plans[op.week];
+      if (!base) return plans;
+      const days = { ...base.days, [op.day]: { ...base.days[op.day], [op.slot]: [] } };
       return { ...plans, [op.week]: { ...base, days } };
     }
   }

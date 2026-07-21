@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { Plans, Recipe, Settings } from '../types';
+import type { IsoDay, MealSlotKey, Plans, Recipe, Settings } from '../types';
 import { makeRecipe, weekPlanWith } from '../testing/fixtures';
-import { buildAutoFill, pickWeighted } from './autoFill';
+import { buildAutoFill, pickWeighted, type AutoFillTarget } from './autoFill';
+import { ISO_DAYS } from './week';
 
 const WEEK = '2026-W30';
+
+/** All (day, slot) pairs for the given slots, across all 7 days — the shape a caller (planLogic) would pass as fill targets. */
+function targetsFor(slots: MealSlotKey[]): AutoFillTarget[] {
+  return ISO_DAYS.flatMap((day: IsoDay) => slots.map((slot) => ({ day, slot })));
+}
 
 function recipe(overrides: Partial<Recipe> & { id: string; name: string }): Recipe {
   return makeRecipe({
@@ -80,7 +86,7 @@ describe('pickWeighted', () => {
 
 describe('buildAutoFill', () => {
   describe('fill mode', () => {
-    it('targets only empty active slots, in day-major order with SLOT_ORDER inner, and never targets an occupied slot', () => {
+    it('targets only the empty ones among the given targets, re-sorted day-major/SLOT_ORDER regardless of input order, and never targets an occupied slot', () => {
       // 7 distinct breakfast-only and 7 distinct dinner-only recipes so every
       // target has a fresh eligible candidate (no "already assigned this week"
       // gaps) -- isolates the ordering/occupied-exclusion behavior being tested.
@@ -93,21 +99,26 @@ describe('buildAutoFill', () => {
       const plans: Plans = {
         [WEEK]: weekPlanWith([{ day: 'mon', slot: 'dinner', recipeId: 'occupied', source: 'manual' }]),
       };
+      // Given out of order (slot-major, not day-major) — the caller must not
+      // need to sort; buildAutoFill re-sorts for deterministic output order.
+      const givenTargets: AutoFillTarget[] = [
+        ...ISO_DAYS.map((day: IsoDay) => ({ day, slot: 'dinner' as const })),
+        ...ISO_DAYS.map((day: IsoDay) => ({ day, slot: 'breakfast' as const })),
+      ];
       const result = buildAutoFill({
         recipes: [...breakfastRecipes, ...dinnerRecipes],
         plans,
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['breakfast', 'dinner'],
-        mode: { kind: 'fill' },
+        mode: { kind: 'fill', targets: givenTargets },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
 
-      // mon/dinner is occupied and must be excluded; every other (day, slot) among
-      // the two active slots is empty and must be targeted, breakfast before dinner
-      // per day (SLOT_ORDER), days in mon..sun order.
+      // mon/dinner is occupied and must be excluded; every other given target
+      // is empty and must be targeted, breakfast before dinner per day
+      // (SLOT_ORDER), days in mon..sun order (re-sorted from the slot-major input).
       expect(result.emptySlots).toEqual([]);
       const targeted = result.placements.map((p) => ({ day: p.day, slot: p.slot }));
       // Occupied slot never targeted:
@@ -128,8 +139,7 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['breakfast', 'dinner'],
-        mode: { kind: 'fill' },
+        mode: { kind: 'fill', targets: targetsFor(['breakfast', 'dinner']) },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
@@ -157,8 +167,7 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings({ dietRules: [{ category: 'maso', max: 2 }] }),
         week: WEEK,
-        activeSlots: ['dinner'],
-        mode: { kind: 'fill' },
+        mode: { kind: 'fill', targets: targetsFor(['dinner']) },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
@@ -181,8 +190,7 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['dinner'],
-        mode: { kind: 'fill' },
+        mode: { kind: 'fill', targets: targetsFor(['dinner']) },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
@@ -200,8 +208,7 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['dinner'],
-        mode: { kind: 'fill' },
+        mode: { kind: 'fill', targets: targetsFor(['dinner']) },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
@@ -211,7 +218,7 @@ describe('buildAutoFill', () => {
       expect(result.emptySlots).toContainEqual({ day: 'mon', slot: 'dinner' });
     });
 
-    it('returns an empty result when activeSlots is empty', () => {
+    it('returns an empty result when given zero targets', () => {
       const r = recipe({ id: 'r1', name: 'Jidlo' });
       const result = buildAutoFill({
         recipes: [r],
@@ -219,8 +226,7 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: [],
-        mode: { kind: 'fill' },
+        mode: { kind: 'fill', targets: [] },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
@@ -238,8 +244,7 @@ describe('buildAutoFill', () => {
           sales: [],
           settings: settings(),
           week: WEEK,
-          activeSlots: ['dinner'],
-          mode: { kind: 'fill' },
+          mode: { kind: 'fill', targets: targetsFor(['dinner']) },
           rng: TOP,
           idFn: idFnFrom('auto'),
         });
@@ -257,8 +262,7 @@ describe('buildAutoFill', () => {
           sales: [],
           settings: settings(),
           week: WEEK,
-          activeSlots: ['dinner'],
-          mode: { kind: 'fill' },
+          mode: { kind: 'fill', targets: targetsFor(['dinner']) },
           rng,
           idFn: idFnFrom('auto'),
         });
@@ -275,12 +279,12 @@ describe('buildAutoFill', () => {
   });
 
   describe('reroll mode', () => {
-    it('targets slots with >=1 auto entry, restricted to activeSlots; every targeted slot appears in placements', () => {
+    it('targets every slot with >=1 auto entry, with no slot-set restriction; every targeted slot appears in placements', () => {
       const r = recipe({ id: 'r1', name: 'Jidlo', suitableFor: ['dinner'] });
       const plans: Plans = {
         [WEEK]: weekPlanWith([
           { day: 'mon', slot: 'dinner', recipeId: 'old-auto', source: 'auto' },
-          { day: 'tue', slot: 'breakfast', recipeId: 'old-auto-2', source: 'auto' }, // breakfast not active -> not targeted
+          { day: 'tue', slot: 'breakfast', recipeId: 'old-auto-2', source: 'auto' }, // also targeted (no filter)
           { day: 'wed', slot: 'dinner', recipeId: 'manual-only', source: 'manual' }, // manual-only -> not targeted
         ]),
       };
@@ -290,15 +294,22 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['dinner'],
         mode: { kind: 'reroll' },
         rng: TOP,
         idFn: idFnFrom('auto'),
       });
 
       const targeted = result.placements.map((p) => ({ day: p.day, slot: p.slot }));
-      expect(targeted).toEqual([{ day: 'mon', slot: 'dinner' }]);
-      expect(result.placements[0].entries[0].recipeIds).toEqual(['r1']);
+      expect(targeted).toEqual([
+        { day: 'mon', slot: 'dinner' },
+        { day: 'tue', slot: 'breakfast' },
+      ]);
+      const monPlacement = result.placements.find((p) => p.day === 'mon')!;
+      expect(monPlacement.entries[0].recipeIds).toEqual(['r1']);
+      // r1 isn't suitable for breakfast -> nothing eligible to replace the stale auto entry.
+      const tuePlacement = result.placements.find((p) => p.day === 'tue')!;
+      expect(tuePlacement.entries).toEqual([]);
+      expect(result.emptySlots).toEqual([{ day: 'tue', slot: 'breakfast' }]);
     });
 
     it('strips only stale auto entries; manual entries stay and keep consuming quota (manual maso + max 1 -> reroll cannot place maso)', () => {
@@ -321,7 +332,6 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings({ dietRules: [{ category: 'maso', max: 1 }] }),
         week: WEEK,
-        activeSlots: ['dinner'],
         mode: { kind: 'reroll' },
         rng: TOP,
         idFn: idFnFrom('auto'),
@@ -349,7 +359,6 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['dinner'],
         mode: { kind: 'reroll', only: { day: 'tue', slot: 'dinner' } },
         rng: TOP,
         idFn: idFnFrom('auto'),
@@ -370,7 +379,6 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['dinner'],
         mode: { kind: 'reroll', only: { day: 'mon', slot: 'dinner' } },
         rng: TOP,
         idFn: idFnFrom('auto'),
@@ -389,7 +397,6 @@ describe('buildAutoFill', () => {
         sales: [],
         settings: settings(),
         week: WEEK,
-        activeSlots: ['dinner'],
         mode: { kind: 'reroll' },
         rng: TOP,
         idFn: idFnFrom('auto'),

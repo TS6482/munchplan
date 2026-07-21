@@ -13,11 +13,11 @@ export function emptyDayPlan(): DayPlan {
   return { breakfast: [], lunch: [], dinner: [], snack: [] };
 }
 
-/** A week with the given `activeSlots` and all 7 days empty. */
-export function emptyWeekPlan(activeSlots: MealSlotKey[]): WeekPlan {
+/** A week with all 7 days empty. */
+export function emptyWeekPlan(): WeekPlan {
   const days = {} as Record<IsoDay, DayPlan>;
   for (const day of ISO_DAYS) days[day] = emptyDayPlan();
-  return { activeSlots: [...activeSlots], days };
+  return { days };
 }
 
 /** Every entry of a day, across all four slots, in `SLOT_ORDER`. */

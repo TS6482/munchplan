@@ -13,20 +13,12 @@ describe('emptyDayPlan', () => {
 });
 
 describe('emptyWeekPlan', () => {
-  it('sets activeSlots and all 7 days empty', () => {
-    const week = emptyWeekPlan(['dinner', 'lunch']);
-    expect(week.activeSlots).toEqual(['dinner', 'lunch']);
+  it('returns all 7 days empty', () => {
+    const week = emptyWeekPlan();
     expect(Object.keys(week.days)).toEqual(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
     for (const day of Object.values(week.days)) {
       expect(day).toEqual(emptyDayPlan());
     }
-  });
-
-  it('copies the activeSlots array (does not alias the caller\'s array)', () => {
-    const slots = ['dinner'] as const;
-    const week = emptyWeekPlan([...slots]);
-    week.activeSlots.push('lunch');
-    expect(slots).toEqual(['dinner']);
   });
 });
 
@@ -48,7 +40,7 @@ describe('entriesOfDay', () => {
 
 describe('weekRecipeIds', () => {
   it('collects every recipeId of every entry of every slot, duplicates preserved', () => {
-    const week: WeekPlan = emptyWeekPlan(['dinner', 'lunch']);
+    const week: WeekPlan = emptyWeekPlan();
     week.days.mon.dinner = [entry({ id: 'e1', recipeIds: ['r1'] })];
     week.days.mon.lunch = [entry({ id: 'e2', recipeIds: ['r1'] })]; // same recipe, different slot
     week.days.wed.dinner = [entry({ id: 'e3', recipeIds: ['r2', 'r2'] })]; // multi-recipe entry, duplicate id inside
@@ -56,7 +48,7 @@ describe('weekRecipeIds', () => {
   });
 
   it('returns [] for a week with no entries', () => {
-    expect(weekRecipeIds(emptyWeekPlan(['dinner']))).toEqual([]);
+    expect(weekRecipeIds(emptyWeekPlan())).toEqual([]);
   });
 });
 
@@ -66,11 +58,11 @@ describe('slotIsEmpty', () => {
   });
 
   it('is true for an empty slot', () => {
-    expect(slotIsEmpty(emptyWeekPlan(['dinner']), 'mon', 'dinner')).toBe(true);
+    expect(slotIsEmpty(emptyWeekPlan(), 'mon', 'dinner')).toBe(true);
   });
 
   it('is false once the slot holds an entry', () => {
-    const week = emptyWeekPlan(['dinner']);
+    const week = emptyWeekPlan();
     week.days.mon.dinner = [entry({ id: 'e1', recipeIds: ['r1'] })];
     expect(slotIsEmpty(week, 'mon', 'dinner')).toBe(false);
   });

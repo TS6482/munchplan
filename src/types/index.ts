@@ -81,8 +81,6 @@ export interface MealEntry {
 export type DayPlan = Record<MealSlotKey, MealEntry[]>;
 
 export interface WeekPlan {
-  /** Which slots render on the plan screen for this week; single source of truth (see planModel.ts). */
-  activeSlots: MealSlotKey[];
   days: Record<IsoDay, DayPlan>;
 }
 

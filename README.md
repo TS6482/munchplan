@@ -4,7 +4,7 @@
 
 MunchPlan je týdenní plánovač jídel pro dvoučlennou domácnost. Aplikace umí:
 
-- plánovat **čtyři jídla denně** (snídaně, oběd, večeře, svačiny) — které sloty se v daném týdnu plánují, se volí přepínačem; nový týden přebírá volbu z minulého týdne,
+- plánovat **čtyři jídla denně** (snídaně, oběd, večeře, svačiny) — všechny čtyři sloty jsou vidět u každého dne; nechtěné prostě zůstanou prázdné; ✕ u řádku slot vyčistí; automatické doplnění cílí sloty podle vzoru stejného dne minulý týden,
 - **automaticky doplnit návrhy** ("Doplnit návrhy") — vážený náhodný výběr z receptů podle slev, rotace, dietních pravidel a vhodnosti receptu pro daný slot; "Přegenerovat" vymění jen automaticky doplněná jídla, ruční výběry zůstávají,
 - otevřít **detail jídla** (klepnutím na slot) — přidat víc jídel do jednoho slotu (návštěva), odebrat je, vybrat z návrhů nebo ze všech receptů,
 - vést kolekci receptů a inbox "vyzkoušet" pro nápady, které ještě nebyly uvařené; každý recept má "vhodné pro" (kterým jídlům odpovídá),
@@ -23,11 +23,11 @@ Postavena na React + TypeScript + Vite, data se ukládají do soukromého GitHub
    - **Pozor:** po vypršení tokenu je potřeba vytvořit nový a nastavit ho znovu v aplikaci — aplikace v tom případě zobrazí chybu "Token vypršel...".
 3. V aplikaci (záložka **Nastavení**) vyplňte owner, repo a token — na **každém zařízení** zvlášť. Oba partneři musí ukazovat na stejný datový repozitář.
 
-## Aktualizace na verzi se sloty (jednorázová migrace dat)
+## Aktualizace na verzi s plánováním po dnech (jednorázová migrace dat)
 
-Verze se čtyřmi sloty mění formát uložených plánů. Migrace proběhne automaticky při prvním načtení — staré večeře se objeví jako jídla ve slotu "večeře", nic se neztratí.
+Verze s plánováním po dnech ruší týdenní zapínání/vypínání slotů — nově se u každého dne vždy zobrazují všechny čtyři sloty, nechtěné zůstanou prázdné. Uložené pole `activeSlots` z předchozí verze se při načtení tiše zahodí, žádná data se neztratí.
 
-**Důležité: aktualizujte obě zařízení (oba telefony) přibližně ve stejnou dobu** — stačí načíst novou verzi webu (obnovit stránku). Zařízení se **starou** verzí aplikace totiž zobrazí migrovaná jídla jako "smazaný recept" s tlačítkem ✕ — jeho stisknutí jídla daného dne opravdu smaže. Kdyby se něco pokazilo, data lze obnovit z historie commitů datového repozitáře na GitHubu.
+**Důležité: aktualizujte obě zařízení (oba telefony) přibližně ve stejnou dobu** — stačí načíst novou verzi webu (obnovit stránku). Zařízení se **starou** verzí aplikace totiž stále skrývá sloty mimo svůj uložený výběr `activeSlots` a odškrtnutí slotu jeho jídla smaže. Kdyby se něco pokazilo, data lze obnovit z historie commitů datového repozitáře na GitHubu.
 
 ## Bezpečnostní poznámka
 

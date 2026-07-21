@@ -122,7 +122,7 @@ describe('cross-slot cooked detection (feature 002 step 5)', () => {
   });
 
   it('counts both recipeIds of a multi-recipe entry as cooked', () => {
-    const week = emptyWeekPlan(['dinner']);
+    const week = emptyWeekPlan();
     week.days.mon.dinner = [{ id: 'e1', recipeIds: ['a', 'b'], source: 'manual' }];
     const plans: Plans = { '2026-W29': week };
     expect(lastCookedWeek('a', plans, '2026-W30')).toBe('2026-W29');

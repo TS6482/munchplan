@@ -107,7 +107,6 @@ export interface RerollInput {
   sales: SaleItem[];
   settings: Settings;
   week: WeekKey;
-  activeSlots: MealSlotKey[];
 }
 
 export interface RerollResult {

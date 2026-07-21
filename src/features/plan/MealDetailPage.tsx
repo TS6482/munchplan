@@ -3,7 +3,7 @@ import { useDataStore } from '../../store/data';
 import type { IsoDay, MealSlotKey, WeekKey } from '../../types';
 import type { RankSuggestionsInput } from '../../engine/suggest';
 import { routeHash } from '../../router/router';
-import { getSuggestions, seedOpsForUnstoredWeek, suggestionView } from './planLogic';
+import { getSuggestions, suggestionView } from './planLogic';
 import { entryRows, mealHeader, newManualEntry, rerollSlot } from './mealDetailLogic';
 import RecipePicker from './RecipePicker';
 import styles from './MealDetailPage.module.css';
@@ -26,7 +26,6 @@ function MealDetailPage({ week, day, slot }: MealDetailPageProps) {
   const addMealEntry = useDataStore((s) => s.addMealEntry);
   const removeMealEntry = useDataStore((s) => s.removeMealEntry);
   const replaceAutoEntries = useDataStore((s) => s.replaceAutoEntries);
-  const activateSlot = useDataStore((s) => s.activateSlot);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [rerollNotice, setRerollNotice] = useState(false);
@@ -40,22 +39,12 @@ function MealDetailPage({ week, day, slot }: MealDetailPageProps) {
   const suggestions = getSuggestions({ ...suggestionsInput, slot }).slice(0, SUGGESTION_LIMIT);
 
   async function handleAdd(recipeId: string) {
-    // Unstored week: seed the inherited defaults before activating the
-    // tapped slot (decision 6 / MAJOR 1) — seeding first means a tapped slot
-    // outside those defaults joins them instead of replacing them.
-    const seedOps = seedOpsForUnstoredWeek(plans, week);
-    for (const op of seedOps) {
-      await activateSlot(op.week, op.slot);
-    }
-    if (!seedOps.some((op) => op.slot === slot) && !(weekPlan?.activeSlots.includes(slot) ?? false)) {
-      await activateSlot(week, slot);
-    }
     await addMealEntry(week, day, slot, newManualEntry(recipeId, () => crypto.randomUUID()));
   }
 
   function handleReroll() {
     const result = rerollSlot(
-      { recipes, plans, sales, settings, week, activeSlots: weekPlan?.activeSlots ?? [slot] },
+      { recipes, plans, sales, settings, week },
       day,
       slot,
       Math.random,
