@@ -30,12 +30,17 @@ export function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
  * fixture equivalent of the old `{ days: { mon: 'r1' } }` one-dinner-per-day
  * literal used before the meal-slot model. Entry ids are deterministic
  * (`fx-{day}`) so fixture-based assertions stay stable across re-builds.
+ *
+ * A day's value may also be an array (feature 004 step 3) to build a
+ * composed entry, e.g. `dinnerWeek({ mon: ['main1', 'side1'] })` —
+ * `recipeIds` in array order, primary first.
  */
-export function dinnerWeek(days: Partial<Record<IsoDay, string>>): WeekPlan {
+export function dinnerWeek(days: Partial<Record<IsoDay, string | string[]>>): WeekPlan {
   const base = emptyWeekPlan();
   const newDays = { ...base.days };
-  for (const [day, recipeId] of Object.entries(days) as [IsoDay, string][]) {
-    newDays[day] = { ...newDays[day], dinner: [{ id: `fx-${day}`, recipeIds: [recipeId], source: 'manual' }] };
+  for (const [day, recipeId] of Object.entries(days) as [IsoDay, string | string[]][]) {
+    const recipeIds = Array.isArray(recipeId) ? recipeId : [recipeId];
+    newDays[day] = { ...newDays[day], dinner: [{ id: `fx-${day}`, recipeIds, source: 'manual' }] };
   }
   return { ...base, days: newDays };
 }
@@ -45,14 +50,20 @@ export function dinnerWeek(days: Partial<Record<IsoDay, string>>): WeekPlan {
  * recipeId) — the multi-slot fixture helper for rules that must consider
  * every slot, not just dinner (e.g. a "max 2x maso" rule consumed by both
  * oběd and večeře, or a recipe cooked as a snack counting for rotation).
+ *
+ * `recipeId` may also be an array (feature 004 step 3) to build a composed
+ * entry, e.g. `{ day: 'mon', slot: 'dinner', recipeId: ['main1', 'side1'] }`
+ * — `recipeIds` in array order, primary first.
  */
 export function weekPlanWith(
-  entries: { day: IsoDay; slot: MealSlotKey; recipeId: string; source?: 'auto' | 'manual'; id?: string }[],
+  entries: { day: IsoDay; slot: MealSlotKey; recipeId: string | string[]; source?: 'auto' | 'manual'; id?: string }[],
 ): WeekPlan {
   const base = emptyWeekPlan();
   const newDays = { ...base.days };
   for (const e of entries) {
-    const entry = { id: e.id ?? `fx-${e.day}-${e.slot}-${e.recipeId}`, recipeIds: [e.recipeId], source: e.source ?? ('manual' as const) };
+    const recipeIds = Array.isArray(e.recipeId) ? e.recipeId : [e.recipeId];
+    const idSuffix = recipeIds.join('-');
+    const entry = { id: e.id ?? `fx-${e.day}-${e.slot}-${idSuffix}`, recipeIds, source: e.source ?? ('manual' as const) };
     newDays[e.day] = { ...newDays[e.day], [e.slot]: [...newDays[e.day][e.slot], entry] };
   }
   return { ...base, days: newDays };

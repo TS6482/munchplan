@@ -233,6 +233,8 @@ export function czechWarnings(warnings: Warning[]): string[] {
         return rotationText(w.weeksSinceCooked);
       case 'unsuitable':
         return `Recept není označen jako vhodný ${SLOT_ACCUSATIVE[w.slot]}`;
+      case 'unpairedMain':
+        return 'Recept nemá přiřazené přílohy';
     }
   });
 }

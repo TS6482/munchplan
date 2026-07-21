@@ -1,7 +1,8 @@
 import type { MealSlotKey, Plans, Recipe, RecipeCategory, SaleItem, Settings, WeekKey } from '../types';
+import { isBlockedForAnyone, validPairedSides } from './composition';
 import { blockedMatch, saleMatch } from './match';
 import { normalizeName } from './normalize';
-import { weekRecipeIds } from './planModel';
+import { weekPrimaryRecipeIds, weekRecipeIds } from './planModel';
 import { unmetMinCategories, wouldExceedMax } from './quota';
 import { isInRotationWindow, weeksSinceCooked } from './rotation';
 
@@ -28,19 +29,23 @@ export type Warning =
   | { kind: 'blocked'; person: string; ingredients: string[] }
   | { kind: 'maxExceeded'; category: RecipeCategory }
   | { kind: 'rotation'; weeksSinceCooked: number }
-  | { kind: 'unsuitable'; slot: MealSlotKey };
+  | { kind: 'unsuitable'; slot: MealSlotKey }
+  | { kind: 'unpairedMain' };
 
 /**
  * Categories of recipes currently assigned to any slot of any day of
- * `targetWeek`. Duplicates count multiple times (a multi-recipe entry
- * contributes each recipe's category; the same recipe in two slots counts
- * twice). Unknown recipeIds are skipped.
+ * `targetWeek`, counted by each entry's FIRST recipeId only — the meal's
+ * primary/identity recipe (feature 004 plan, design decision 1: diet
+ * quotas judge the main a composed entry places, not its side/salad; this
+ * overrides the 002 step-5 "count all recipeIds" pin). Duplicates still
+ * count multiple times (the same recipe planned twice counts twice).
+ * Unknown recipeIds are skipped.
  */
 export function plannedCategories(recipes: Recipe[], plans: Plans, targetWeek: WeekKey): RecipeCategory[] {
   const plan = plans[targetWeek];
   if (!plan) return [];
   const byId = new Map(recipes.map((r) => [r.id, r]));
-  return weekRecipeIds(plan)
+  return weekPrimaryRecipeIds(plan)
     .map((id) => byId.get(id))
     .filter((r): r is Recipe => r != null)
     .map((r) => r.category);
@@ -60,10 +65,6 @@ function blockedIngredientsFor(recipe: Recipe, blocked: string[]): string[] {
     .map((ing) => ing.name);
 }
 
-function isBlockedForAnyone(recipe: Recipe, settings: Settings): boolean {
-  return settings.persons.some((person) => blockedIngredientsFor(recipe, person.blocked).length > 0);
-}
-
 /** The recipe's ingredient names that match any sale item. */
 function matchedSaleIngredients(recipe: Recipe, sales: SaleItem[]): string[] {
   return recipe.ingredients
@@ -77,6 +78,13 @@ function matchedSaleIngredients(recipe: Recipe, sales: SaleItem[]): string[] {
  * rotation window, recipes that would exceed a max diet quota, and recipes
  * already assigned to the target week. Untried recipes with ingredients are
  * included (flagged `untried: true`).
+ *
+ * Composition eligibility (feature 004 step 2): `side`/`salad` recipes are
+ * never ranked (freely plannable only via the picker); `main` recipes are
+ * ranked only when they have >=1 valid paired side (`validPairedSides`) —
+ * an unpaired main is excluded, same predicate as the `unpairedMain`
+ * warning below, so hint and exclusion can never disagree. `full` recipes
+ * are unaffected (AC7).
  *
  * Ranked by the lexicographic tuple (saleMatchCount desc, weeksSinceCooked
  * desc [never cooked = Infinity], boostsUnmetMin desc, normalized name asc).
@@ -94,6 +102,8 @@ export function rankSuggestions(input: RankSuggestionsInput): Suggestion[] {
   const suggestions: Suggestion[] = [];
   for (const recipe of recipes) {
     if (recipe.ingredients.length === 0) continue;
+    if (recipe.componentType === 'side' || recipe.componentType === 'salad') continue;
+    if (recipe.componentType === 'main' && validPairedSides(recipe, recipes, settings).length === 0) continue;
     if (assignedIds.has(recipe.id)) continue;
     if (slot && !recipe.suitableFor.includes(slot)) continue;
     if (isBlockedForAnyone(recipe, settings)) continue;
@@ -131,6 +141,11 @@ export function rankSuggestions(input: RankSuggestionsInput): Suggestion[] {
  * never an exclusion here — manual picks stay allowed (AC5), same pattern as
  * `blocked`. Placement: appended after `rotation`, keeping the existing
  * blocked/maxExceeded/rotation order untouched; pinned by a test.
+ *
+ * `unpairedMain` (feature 004 step 2) is appended last, after `unsuitable`:
+ * emitted only for `componentType: 'main'` with zero valid paired sides —
+ * the same predicate `rankSuggestions` uses to exclude it from ranking.
+ * Sides/salads never get this warning (spec: freely pickable, no warning).
  */
 export function warningsFor(recipe: Recipe, input: RankSuggestionsInput): Warning[] {
   const { recipes, plans, settings, targetWeek, slot } = input;
@@ -154,6 +169,10 @@ export function warningsFor(recipe: Recipe, input: RankSuggestionsInput): Warnin
 
   if (slot && !recipe.suitableFor.includes(slot)) {
     warnings.push({ kind: 'unsuitable', slot });
+  }
+
+  if (recipe.componentType === 'main' && validPairedSides(recipe, recipes, settings).length === 0) {
+    warnings.push({ kind: 'unpairedMain' });
   }
 
   return warnings;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MealEntry, WeekPlan } from '../types';
-import { emptyDayPlan, emptyWeekPlan, entriesOfDay, slotIsEmpty, weekRecipeIds } from './planModel';
+import { emptyDayPlan, emptyWeekPlan, entriesOfDay, slotIsEmpty, weekPrimaryRecipeIds, weekRecipeIds } from './planModel';
 
 function entry(overrides: Partial<MealEntry> & { id: string; recipeIds: string[] }): MealEntry {
   return { source: 'manual', ...overrides };
@@ -49,6 +49,26 @@ describe('weekRecipeIds', () => {
 
   it('returns [] for a week with no entries', () => {
     expect(weekRecipeIds(emptyWeekPlan())).toEqual([]);
+  });
+});
+
+describe('weekPrimaryRecipeIds (feature 004 step 3)', () => {
+  it('collects only the FIRST recipeId of every entry, duplicates preserved', () => {
+    const week: WeekPlan = emptyWeekPlan();
+    week.days.mon.dinner = [entry({ id: 'e1', recipeIds: ['main1', 'side1'] })];
+    week.days.mon.lunch = [entry({ id: 'e2', recipeIds: ['main1'] })]; // same primary, different slot
+    week.days.wed.dinner = [entry({ id: 'e3', recipeIds: ['main2', 'side2', 'salad2'] })];
+    expect(weekPrimaryRecipeIds(week).sort()).toEqual(['main1', 'main1', 'main2']);
+  });
+
+  it('skips an entry with an empty recipeIds array defensively', () => {
+    const week: WeekPlan = emptyWeekPlan();
+    week.days.mon.dinner = [entry({ id: 'e1', recipeIds: [] })];
+    expect(weekPrimaryRecipeIds(week)).toEqual([]);
+  });
+
+  it('returns [] for a week with no entries', () => {
+    expect(weekPrimaryRecipeIds(emptyWeekPlan())).toEqual([]);
   });
 });
 

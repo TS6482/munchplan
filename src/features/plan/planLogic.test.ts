@@ -220,6 +220,11 @@ describe('czechWarnings', () => {
   it('returns an empty array for no warnings', () => {
     expect(czechWarnings([])).toEqual([]);
   });
+
+  it('formats an unpairedMain warning (feature 004 step 2)', () => {
+    const warnings: Warning[] = [{ kind: 'unpairedMain' }];
+    expect(czechWarnings(warnings)).toEqual(['Recept nemá přiřazené přílohy']);
+  });
 });
 
 describe('suggestionView', () => {
@@ -285,6 +290,13 @@ describe('pickerEntries', () => {
     const b = recipe({ id: 'b', name: 'Boloňské špagety' });
     const entries = pickerEntries({ recipes: [a, b], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
     expect(entries.map((e) => e.recipe.id)).toEqual(['b', 'a']);
+  });
+
+  it('marks a side recipe as selectable with no composition warning (AC5)', () => {
+    const r = recipe({ id: 'r1', name: 'Rýže', componentType: 'side' });
+    const entries = pickerEntries({ recipes: [r], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(entries[0].plannable).toBe(true);
+    expect(entries[0].warnings).toEqual([]);
   });
 });
 
