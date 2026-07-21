@@ -44,6 +44,9 @@ export function weekChoices(now: Date): WeekChoice[] {
 // Day labels / dates (shared with mealDetailLogic)
 // ---------------------------------------------------------------------------
 
+/** Shared Czech copy for the unpaired-main hint (picker warning + meal detail hint must never fork). */
+export const UNPAIRED_MAIN_HINT = 'Recept nemá přiřazené přílohy';
+
 export const DAY_LABELS: Record<IsoDay, string> = {
   mon: 'Po',
   tue: 'Út',
@@ -234,7 +237,7 @@ export function czechWarnings(warnings: Warning[]): string[] {
       case 'unsuitable':
         return `Recept není označen jako vhodný ${SLOT_ACCUSATIVE[w.slot]}`;
       case 'unpairedMain':
-        return 'Recept nemá přiřazené přílohy';
+        return UNPAIRED_MAIN_HINT;
     }
   });
 }

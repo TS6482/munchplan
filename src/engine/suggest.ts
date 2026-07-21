@@ -1,6 +1,6 @@
 import type { MealSlotKey, Plans, Recipe, RecipeCategory, SaleItem, Settings, WeekKey } from '../types';
-import { isBlockedForAnyone, validPairedSides } from './composition';
-import { blockedMatch, saleMatch } from './match';
+import { blockedIngredientsFor, isBlockedForAnyone, validPairedSides } from './composition';
+import { saleMatch } from './match';
 import { normalizeName } from './normalize';
 import { weekPrimaryRecipeIds, weekRecipeIds } from './planModel';
 import { unmetMinCategories, wouldExceedMax } from './quota';
@@ -56,13 +56,6 @@ function assignedRecipeIds(plans: Plans, targetWeek: WeekKey): Set<string> {
   const plan = plans[targetWeek];
   if (!plan) return new Set();
   return new Set(weekRecipeIds(plan));
-}
-
-/** The recipe's ingredient names blocked for `person` (empty if none). */
-function blockedIngredientsFor(recipe: Recipe, blocked: string[]): string[] {
-  return recipe.ingredients
-    .filter((ing) => blocked.some((term) => blockedMatch(term, ing.name)))
-    .map((ing) => ing.name);
 }
 
 /** The recipe's ingredient names that match any sale item. */
@@ -156,6 +149,13 @@ export function warningsFor(recipe: Recipe, input: RankSuggestionsInput): Warnin
     if (ingredients.length > 0) {
       warnings.push({ kind: 'blocked', person: person.name, ingredients });
     }
+  }
+
+  // Sides/salads are accompaniments, freely pickable anytime (user decision):
+  // only the allergy-relevant blocked warning applies to them — quota, rotation
+  // and slot-suitability judge meals, not components.
+  if (recipe.componentType === 'side' || recipe.componentType === 'salad') {
+    return warnings;
   }
 
   const planned = plannedCategories(recipes, plans, targetWeek);

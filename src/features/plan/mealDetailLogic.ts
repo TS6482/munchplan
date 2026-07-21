@@ -12,7 +12,7 @@ import { COMPONENT_TYPE_LABELS } from '../../components/componentTypeLabels';
 import { formatPortions } from '../recipes/recipeFormLogic';
 import { SLOT_LABELS } from '../../components/slotLabels';
 import { routeHash } from '../../router/router';
-import { DAY_LABELS, czechDate } from './planLogic';
+import { DAY_LABELS, UNPAIRED_MAIN_HINT, czechDate } from './planLogic';
 
 // ---------------------------------------------------------------------------
 // Header
@@ -227,7 +227,9 @@ export function swapSide(entry: MealEntry, recipes: Recipe[], settings: Settings
     nextRecipeIds:
       targetIndex !== null
         ? entry.recipeIds.map((id, i) => (i === targetIndex ? side.id : id))
-        : [...entry.recipeIds, side.id],
+        : // Insert at index 1, not append — keeps the documented [main, side, salad?] order
+          // when a side is added to an entry that already holds a salad.
+          [entry.recipeIds[0], side.id, ...entry.recipeIds.slice(1)],
   }));
 }
 
@@ -269,7 +271,7 @@ export function unpairedMainHint(entry: MealEntry, recipes: Recipe[], settings: 
   const main = recipes.find((r) => r.id === entry.recipeIds[0]);
   if (!main || main.componentType !== 'main') return null;
   if (validPairedSides(main, recipes, settings).length > 0) return null;
-  return { text: 'Recept nemá přiřazené přílohy', editHref: routeHash({ name: 'recipe', id: main.id }) };
+  return { text: UNPAIRED_MAIN_HINT, editHref: routeHash({ name: 'recipe', id: main.id }) };
 }
 
 // ---------------------------------------------------------------------------

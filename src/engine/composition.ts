@@ -13,7 +13,7 @@ import type { ComponentType, MealEntry, Recipe, SaleItem, Settings } from '../ty
 import { blockedMatch, saleMatch } from './match';
 
 /** The recipe's ingredient names blocked for `person` (empty if none). */
-function blockedIngredientsFor(recipe: Recipe, blocked: string[]): string[] {
+export function blockedIngredientsFor(recipe: Recipe, blocked: string[]): string[] {
   return recipe.ingredients
     .filter((ing) => blocked.some((term) => blockedMatch(term, ing.name)))
     .map((ing) => ing.name);

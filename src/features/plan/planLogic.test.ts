@@ -545,3 +545,33 @@ describe('store integration: addMealEntry + suggestion recompute (AC4)', () => {
     expect(result).toEqual([]);
   });
 });
+
+describe('side/salad picker warnings (feature 004 review fix)', () => {
+  it('a side gets only the blocked warning in slot context - no unsuitable/rotation noise', async () => {
+    const { warningsFor } = await import('../../engine/suggest');
+    const { makeRecipe, weekPlanWith } = await import('../../testing/fixtures');
+    const side = makeRecipe({
+      id: 's1',
+      componentType: 'side',
+      suitableFor: ['lunch', 'dinner'],
+      ingredients: [{ name: 'smetana' }],
+    });
+    const input = {
+      recipes: [side],
+      plans: { '2026-W29': weekPlanWith([{ day: 'mon' as const, slot: 'dinner' as const, recipeId: 's1' }]) },
+      sales: [],
+      settings: {
+        persons: [
+          { name: 'A', blocked: ['smetana'] },
+          { name: 'B', blocked: [] },
+        ] as [{ name: string; blocked: string[] }, { name: string; blocked: string[] }],
+        dietRules: [],
+        rotationWeeks: 2,
+      },
+      targetWeek: '2026-W30',
+      slot: 'breakfast' as const,
+    };
+    const kinds = warningsFor(side, input).map((w) => w.kind);
+    expect(kinds).toEqual(['blocked']);
+  });
+});
