@@ -3,7 +3,16 @@ import { useDataStore } from '../../store/data';
 import { navigate } from '../../router/router';
 import type { Ingredient, Recipe } from '../../types';
 import { SLOT_LABELS } from '../../components/slotLabels';
-import { EFFORT_LABELS, canBePlanned, formatAmount, formatPortions, promoteRecipe, sourceHref } from './recipeFormLogic';
+import { COMPONENT_TYPE_LABELS } from '../../components/componentTypeLabels';
+import {
+  EFFORT_LABELS,
+  canBePlanned,
+  formatAmount,
+  formatPortions,
+  pairingChips,
+  promoteRecipe,
+  sourceHref,
+} from './recipeFormLogic';
 import RecipeForm from './RecipeForm';
 import styles from './RecipeDetailPage.module.css';
 
@@ -39,6 +48,7 @@ function RecipeDetailPage({ id }: { id: string }) {
   // Rebound with an explicit non-optional type: TS narrowing from the guard
   // above doesn't extend into the function declarations below.
   const current: Recipe = recipe;
+  const chips = pairingChips(current, recipes);
 
   function handlePromote() {
     void addRecipe(promoteRecipe(current, new Date().toISOString()));
@@ -58,6 +68,9 @@ function RecipeDetailPage({ id }: { id: string }) {
       </div>
 
       <div className={styles.chips}>
+        {recipe.componentType !== 'full' && (
+          <span className={styles.chip}>{COMPONENT_TYPE_LABELS[recipe.componentType]}</span>
+        )}
         <span className={styles.chip}>{recipe.category}</span>
         <span className={styles.chip}>{EFFORT_LABELS[recipe.effort]}</span>
         {recipe.portions !== undefined && <span className={styles.chip}>{formatPortions(recipe.portions)}</span>}
@@ -67,6 +80,13 @@ function RecipeDetailPage({ id }: { id: string }) {
           </span>
         ))}
       </div>
+
+      {recipe.componentType === 'main' && (chips.sides.length > 0 || chips.salads.length > 0) && (
+        <div className={styles.pairingLines}>
+          {chips.sides.length > 0 && <p className={styles.pairingLine}>Přílohy: {chips.sides.join(', ')}</p>}
+          {chips.salads.length > 0 && <p className={styles.pairingLine}>Saláty: {chips.salads.join(', ')}</p>}
+        </div>
+      )}
 
       {!canBePlanned(recipe) && (
         <p className={styles.hint}>Recept zatím nemá žádné ingredience — nelze naplánovat.</p>

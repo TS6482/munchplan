@@ -1,12 +1,17 @@
 import { useState, type FormEvent } from 'react';
 import { useDataStore } from '../../store/data';
 import { navigate } from '../../router/router';
-import { SLOT_ORDER, type Effort, type Recipe } from '../../types';
+import { SLOT_ORDER, type ComponentType, type Effort, type Recipe } from '../../types';
 import { SLOT_LABELS } from '../../components/slotLabels';
+import { COMPONENT_TYPE_LABELS } from '../../components/componentTypeLabels';
 import {
+  emptyForm,
+  filterPool,
   fromRecipe,
+  pairingPools,
   PORTION_OPTIONS,
   toggleSlotSelection,
+  togglePairing,
   toRecipe,
   unitOptions,
   validateFullForm,
@@ -25,21 +30,12 @@ const EFFORTS: { value: Effort; label: string }[] = [
   { value: 'hard', label: 'náročné' },
 ];
 
+const COMPONENT_TYPES: ComponentType[] = ['full', 'main', 'side', 'salad'];
+/** Above this many candidates, a filter input is offered (plan step 6). */
+const POOL_FILTER_THRESHOLD = 8;
+
 function emptyRow(): IngredientFormRow {
   return { name: '', amountStr: '', unit: '' };
-}
-
-function emptyForm(): FormValues {
-  return {
-    name: '',
-    category: 'jiné',
-    effort: 'normal',
-    source: '',
-    notes: '',
-    portionsStr: '2',
-    ingredients: [emptyRow()],
-    suitableFor: ['lunch', 'dinner'],
-  };
 }
 
 interface RecipeFormProps {
@@ -53,11 +49,16 @@ interface RecipeFormProps {
 /** Full recipe form, used both for creating a new recipe and editing an existing one. */
 function RecipeForm({ existing, onCancel, untried = false }: RecipeFormProps) {
   const addRecipe = useDataStore((s) => s.addRecipe);
+  const recipes = useDataStore((s) => s.files.recipes.data);
   const [values, setValues] = useState<FormValues>(() => (existing ? fromRecipe(existing) : emptyForm()));
   const [categoryMode, setCategoryMode] = useState<'known' | 'custom'>(() =>
     (KNOWN_CATEGORIES as readonly string[]).includes(values.category) ? 'known' : 'custom',
   );
   const [errors, setErrors] = useState<FullFormErrors>({});
+  const [sidesQuery, setSidesQuery] = useState('');
+  const [saladsQuery, setSaladsQuery] = useState('');
+
+  const pools = pairingPools(recipes, existing?.id);
 
   function updateRow(idx: number, patch: Partial<IngredientFormRow>) {
     setValues((v) => ({ ...v, ingredients: v.ingredients.map((row, i) => (i === idx ? { ...row, ...patch } : row)) }));
@@ -150,6 +151,89 @@ function RecipeForm({ existing, onCancel, untried = false }: RecipeFormProps) {
         </label>
       </div>
       {errors.portions && <p className={styles.error}>{errors.portions}</p>}
+
+      <label className={styles.field}>
+        Typ receptu
+        <select
+          className="select"
+          value={values.componentType}
+          onChange={(e) => setValues((v) => ({ ...v, componentType: e.target.value as ComponentType }))}
+        >
+          {COMPONENT_TYPES.map((ct) => (
+            <option key={ct} value={ct}>
+              {COMPONENT_TYPE_LABELS[ct]}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {values.componentType === 'main' && (
+        <>
+          <div className={styles.field}>
+            Přílohy
+            {pools.sides.length === 0 ? (
+              <p className={styles.hint}>Zatím žádné přílohy — označ recepty jako příloha</p>
+            ) : (
+              <>
+                {pools.sides.length > POOL_FILTER_THRESHOLD && (
+                  <input
+                    className={styles.poolFilter}
+                    placeholder="Hledat přílohu…"
+                    value={sidesQuery}
+                    onChange={(e) => setSidesQuery(e.target.value)}
+                  />
+                )}
+                <div className={styles.chipList}>
+                  {filterPool(pools.sides, sidesQuery).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className={values.pairings.sides.includes(r.id) ? `${styles.chip} ${styles.chipActive}` : styles.chip}
+                      onClick={() =>
+                        setValues((v) => ({ ...v, pairings: { ...v.pairings, sides: togglePairing(v.pairings.sides, r.id) } }))
+                      }
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className={styles.field}>
+            Saláty
+            {pools.salads.length === 0 ? (
+              <p className={styles.hint}>Zatím žádné saláty — označ recepty jako salát</p>
+            ) : (
+              <>
+                {pools.salads.length > POOL_FILTER_THRESHOLD && (
+                  <input
+                    className={styles.poolFilter}
+                    placeholder="Hledat salát…"
+                    value={saladsQuery}
+                    onChange={(e) => setSaladsQuery(e.target.value)}
+                  />
+                )}
+                <div className={styles.chipList}>
+                  {filterPool(pools.salads, saladsQuery).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className={values.pairings.salads.includes(r.id) ? `${styles.chip} ${styles.chipActive}` : styles.chip}
+                      onClick={() =>
+                        setValues((v) => ({ ...v, pairings: { ...v.pairings, salads: togglePairing(v.pairings.salads, r.id) } }))
+                      }
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       <div className={styles.field}>
         Vhodné pro
