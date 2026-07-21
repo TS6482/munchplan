@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { IsoDay, MealSlotKey, Plans, Recipe, Settings } from '../types';
 import { makeRecipe, weekPlanWith } from '../testing/fixtures';
 import { buildAutoFill, pickWeighted, type AutoFillTarget } from './autoFill';
+import { rankSuggestions } from './suggest';
 import { ISO_DAYS } from './week';
 
 const WEEK = '2026-W30';
@@ -482,6 +483,41 @@ describe('buildAutoFill', () => {
       const firstPickTop = resultTop.placements[0].entries[0].recipeIds;
       const firstPickOther = resultOther.placements[0].entries[0].recipeIds;
       expect(firstPickTop).not.toEqual(firstPickOther);
+    });
+  });
+
+  describe('AC7 regression (step 10): an all-full collection behaves exactly like pre-feature semantics', () => {
+    it('every ranked recipe is full, placements are single-recipe, and rng is called only for pickWeighted (zero pickPairedSide calls)', () => {
+      const fullA = recipe({ id: 'fullA', name: 'Guláš', suitableFor: ['dinner'] });
+      const fullB = recipe({ id: 'fullB', name: 'Rizoto', suitableFor: ['dinner'] });
+      const fullC = recipe({ id: 'fullC', name: 'Polévka', suitableFor: ['dinner'] });
+      const recipes = [fullA, fullB, fullC];
+      expect(recipes.every((r) => r.componentType === 'full')).toBe(true);
+
+      const ranked = rankSuggestions({ recipes, plans: {}, sales: [], settings: settings(), targetWeek: WEEK });
+      expect(ranked).toHaveLength(3);
+      expect(ranked.every((s) => s.recipe.componentType === 'full')).toBe(true);
+
+      const rng = vi.fn(() => 0);
+      const result = buildAutoFill({
+        recipes,
+        plans: {},
+        sales: [],
+        settings: settings(),
+        week: WEEK,
+        mode: { kind: 'fill', targets: targetsFor(['dinner']) },
+        rng,
+        idFn: idFnFrom('auto'),
+      });
+
+      // 3 full recipes -> 3 placements (one per progressive pick), each single-recipe.
+      expect(result.placements).toHaveLength(3);
+      for (const p of result.placements) {
+        expect(p.entries[0].recipeIds).toHaveLength(1);
+      }
+      // Exactly one rng() call per placement (pickWeighted only -- composeEntry
+      // makes zero calls for a full recipe): proves no pickPairedSide call snuck in.
+      expect(rng).toHaveBeenCalledTimes(result.placements.length);
     });
   });
 

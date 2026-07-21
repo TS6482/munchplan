@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Ingredient, IsoDay, MealSlotKey, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
+import type { Ingredient, IsoDay, MealSlotKey, Plans, Recipe, SaleItem, WeekExtras, WeekPlan } from '../types';
 import { dinnerWeek, makeRecipe, weekPlanWith } from '../testing/fixtures';
+import { applyPlansOp, setEntryRecipes } from '../store/ops';
 import { emptyWeekPlan } from './planModel';
 import { buildShoppingList } from './shoppingList';
 
@@ -345,6 +346,33 @@ describe('buildShoppingList', () => {
       const plan = dinnerWeek({ mon: 'a' });
       const result = buildShoppingList({ recipes: [a], plan, pantry: [], sales: [], weekExtras: extras() });
       expect(result.buy[0].key).toBe('mouka|g');
+    });
+
+    it('swapping the side via applyPlansOp(setEntryRecipes(...)) swaps the contributed ingredients (AC2/AC4)', () => {
+      const main = recipe({ id: 'main', name: 'Main', ingredients: [{ name: 'kuře', amount: 500, unit: 'g' }] });
+      const sideA = recipe({ id: 'sideA', name: 'Side A', ingredients: [{ name: 'rýže', amount: 200, unit: 'g' }] });
+      const sideB = recipe({ id: 'sideB', name: 'Side B', ingredients: [{ name: 'brambory', amount: 300, unit: 'g' }] });
+      const week = '2026-W30';
+      const plans: Plans = { [week]: multiRecipeEntryWeek('mon', 'dinner', ['main', 'sideA']) };
+
+      const before = buildShoppingList({
+        recipes: [main, sideA, sideB],
+        plan: plans[week],
+        pantry: [],
+        sales: [],
+        weekExtras: extras(),
+      });
+      expect(before.buy.map((i) => i.key).sort()).toEqual(['kure|g', 'ryze|g']);
+
+      const swappedPlans = applyPlansOp(setEntryRecipes(week, 'mon', 'dinner', 'entry-1', ['main', 'sideB']), plans);
+      const after = buildShoppingList({
+        recipes: [main, sideA, sideB],
+        plan: swappedPlans[week],
+        pantry: [],
+        sales: [],
+        weekExtras: extras(),
+      });
+      expect(after.buy.map((i) => i.key).sort()).toEqual(['brambory|g', 'kure|g']);
     });
 
     it('check state re-attaches after adding a second entry to a slot (checks keyed by ItemKey, unaffected)', () => {

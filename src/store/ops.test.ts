@@ -635,6 +635,100 @@ describe('setEntryRecipes', () => {
   });
 });
 
+describe('setEntryRecipes AC4 concurrency matrix (step 10)', () => {
+  it('A setEntryRecipes on entry1 + B addMealEntry entry2 into the same slot: both effects survive, order A-then-B', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['main1'], source: 'manual' }),
+      {},
+    );
+    let result = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), base);
+    result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e2', recipeIds: ['other'], source: 'manual' }),
+      result,
+    );
+    expect(result['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'e1', recipeIds: ['main1', 'sideA'], source: 'manual' },
+      { id: 'e2', recipeIds: ['other'], source: 'manual' },
+    ]);
+  });
+
+  it('A setEntryRecipes on entry1 + B addMealEntry entry2 into the same slot: both effects survive, order B-then-A', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['main1'], source: 'manual' }),
+      {},
+    );
+    let result = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e2', recipeIds: ['other'], source: 'manual' }),
+      base,
+    );
+    result = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), result);
+    expect(result['2026-W30'].days.mon.dinner).toEqual([
+      { id: 'e1', recipeIds: ['main1', 'sideA'], source: 'manual' },
+      { id: 'e2', recipeIds: ['other'], source: 'manual' },
+    ]);
+  });
+
+  it('A setEntryRecipes on entry1 + B addMealEntry on a different day: both effects survive regardless of order', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['main1'], source: 'manual' }),
+      {},
+    );
+    let orderAB = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), base);
+    orderAB = applyPlansOp(
+      addMealEntry('2026-W30', 'wed', 'lunch', { id: 'e2', recipeIds: ['other'], source: 'manual' }),
+      orderAB,
+    );
+
+    let orderBA = applyPlansOp(
+      addMealEntry('2026-W30', 'wed', 'lunch', { id: 'e2', recipeIds: ['other'], source: 'manual' }),
+      base,
+    );
+    orderBA = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), orderBA);
+
+    for (const result of [orderAB, orderBA]) {
+      expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'e1', recipeIds: ['main1', 'sideA'], source: 'manual' }]);
+      expect(result['2026-W30'].days.wed.lunch).toEqual([{ id: 'e2', recipeIds: ['other'], source: 'manual' }]);
+    }
+  });
+
+  it('A setEntryRecipes on entry1 + B clearDaySlot on a different slot: both effects survive regardless of order', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['main1'], source: 'manual' }),
+      {},
+    );
+    const withLunch = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'lunch', { id: 'e2', recipeIds: ['lunchRecipe'], source: 'manual' }),
+      base,
+    );
+
+    let orderAB = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), withLunch);
+    orderAB = applyPlansOp(clearDaySlot('2026-W30', 'mon', 'lunch'), orderAB);
+
+    let orderBA = applyPlansOp(clearDaySlot('2026-W30', 'mon', 'lunch'), withLunch);
+    orderBA = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), orderBA);
+
+    for (const result of [orderAB, orderBA]) {
+      expect(result['2026-W30'].days.mon.dinner).toEqual([{ id: 'e1', recipeIds: ['main1', 'sideA'], source: 'manual' }]);
+      expect(result['2026-W30'].days.mon.lunch).toEqual([]);
+    }
+  });
+
+  it('A setEntryRecipes on entry1 + B removeMealEntry on entry1: removal sticks regardless of order', () => {
+    const base: Plans = applyPlansOp(
+      addMealEntry('2026-W30', 'mon', 'dinner', { id: 'e1', recipeIds: ['main1'], source: 'manual' }),
+      {},
+    );
+
+    let swapThenRemove = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), base);
+    swapThenRemove = applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'e1'), swapThenRemove);
+    expect(swapThenRemove['2026-W30'].days.mon.dinner).toEqual([]);
+
+    let removeThenSwap = applyPlansOp(removeMealEntry('2026-W30', 'mon', 'dinner', 'e1'), base);
+    removeThenSwap = applyPlansOp(setEntryRecipes('2026-W30', 'mon', 'dinner', 'e1', ['main1', 'sideA']), removeThenSwap);
+    expect(removeThenSwap['2026-W30'].days.mon.dinner).toEqual([]);
+  });
+});
+
 describe('replaceAutoEntries', () => {
   it('preserves remote manual entries and replaces remote auto entries in targeted slots', () => {
     let plans: Plans = applyPlansOp(

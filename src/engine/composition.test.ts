@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Recipe, SaleItem, Settings } from '../types';
+import type { MealEntry, Recipe, SaleItem, Settings } from '../types';
 import { makeRecipe } from '../testing/fixtures';
+import { swapSide } from '../features/plan/mealDetailLogic';
+import { fromRecipe, pairingChips, pairingPools } from '../features/recipes/recipeFormLogic';
 import { composeEntry, isBlockedForAnyone, pairedSalads, pairedSides, pickPairedSide, validPairedSides } from './composition';
+import { rankSuggestions } from './suggest';
 
 function recipe(overrides: Partial<Recipe> & { id: string }): Recipe {
   return makeRecipe({
@@ -186,6 +189,51 @@ describe('composeEntry', () => {
     const idFn = () => 'e1';
     const entry = composeEntry(main, [main], [], settings(), () => 0, idFn, 'auto');
     expect(entry).toEqual({ id: 'e1', recipeIds: ['main1'], source: 'auto' });
+  });
+});
+
+describe('stale-pairing sweep (feature 004 step 10): one fixture (deleted + retyped + valid id) through every consumer, none throw', () => {
+  const validSide = recipe({ id: 'valid-side', name: 'Rýže', componentType: 'side', ingredients: [{ name: 'rýže' }] });
+  const retyped = recipe({ id: 'retyped-side', name: 'Bývalá příloha', componentType: 'full' }); // was a side, re-typed away
+  const main = recipe({
+    id: 'main1',
+    name: 'Kuřecí prsa',
+    componentType: 'main',
+    pairings: { sides: ['deleted-side', 'retyped-side', 'valid-side'], salads: [] },
+  });
+  const recipes = [main, retyped, validSide];
+
+  it('pickPairedSide only ever draws the valid side, regardless of rng', () => {
+    expect(pickPairedSide(main, recipes, [], settings(), () => 0)?.id).toBe('valid-side');
+    expect(pickPairedSide(main, recipes, [], settings(), () => 0.999)?.id).toBe('valid-side');
+  });
+
+  it('rankSuggestions ranks the main (eligible via the one valid side) without throwing', () => {
+    expect(() =>
+      rankSuggestions({ recipes, plans: {}, sales: [], settings: settings(), targetWeek: '2026-W30' }),
+    ).not.toThrow();
+    const result = rankSuggestions({ recipes, plans: {}, sales: [], settings: settings(), targetWeek: '2026-W30' });
+    expect(result.map((s) => s.recipe.id)).toContain('main1');
+  });
+
+  it('pairingChips lists only the valid side name', () => {
+    expect(() => pairingChips(main, recipes)).not.toThrow();
+    expect(pairingChips(main, recipes)).toEqual({ sides: ['Rýže'], salads: [] });
+  });
+
+  it('pairingPools + fromRecipe round-trip: stale ids preserved in form values, pool lists only the currently-valid side', () => {
+    expect(() => pairingPools(recipes, main.id)).not.toThrow();
+    const pools = pairingPools(recipes, main.id);
+    expect(pools.sides.map((r) => r.id)).toEqual(['valid-side']);
+    const values = fromRecipe(main);
+    expect(values.pairings.sides).toEqual(['deleted-side', 'retyped-side', 'valid-side']);
+  });
+
+  it('mealDetailLogic swapSide options list only the valid side', () => {
+    const entry: MealEntry = { id: 'e1', recipeIds: ['main1'], source: 'manual' };
+    expect(() => swapSide(entry, recipes, settings())).not.toThrow();
+    const options = swapSide(entry, recipes, settings());
+    expect(options.map((o) => o.id)).toEqual(['valid-side']);
   });
 });
 
