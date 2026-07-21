@@ -17,6 +17,7 @@ import {
   type Warning,
 } from '../../engine/suggest';
 import { canBePlanned } from '../recipes/recipeFormLogic';
+import { SLOT_ACCUSATIVE } from '../../components/slotLabels';
 
 // ---------------------------------------------------------------------------
 // Week toggle
@@ -121,6 +122,8 @@ export function czechWarnings(warnings: Warning[]): string[] {
         return `Překročí týdenní limit pro kategorii ${w.category}`;
       case 'rotation':
         return rotationText(w.weeksSinceCooked);
+      case 'unsuitable':
+        return `Recept není označen jako vhodný ${SLOT_ACCUSATIVE[w.slot]}`;
     }
   });
 }

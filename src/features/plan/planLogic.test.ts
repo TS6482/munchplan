@@ -123,6 +123,11 @@ describe('czechWarnings', () => {
     expect(czechWarnings(warnings)).toEqual(['Vařeno před 3 týdny']);
   });
 
+  it('formats an unsuitable warning with the slot accusative form (feature 002 step 5)', () => {
+    const warnings: Warning[] = [{ kind: 'unsuitable', slot: 'breakfast' }];
+    expect(czechWarnings(warnings)).toEqual(['Recept není označen jako vhodný pro snídani']);
+  });
+
   it('returns an empty array for no warnings', () => {
     expect(czechWarnings([])).toEqual([]);
   });

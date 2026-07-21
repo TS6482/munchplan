@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { IsoDay, Plans, Recipe, SaleItem, Settings, WeekPlan } from '../types';
-import { dinnerWeek, makeRecipe } from '../testing/fixtures';
-import { rankSuggestions, warningsFor } from './suggest';
+import { dinnerWeek, makeRecipe, weekPlanWith } from '../testing/fixtures';
+import { emptyWeekPlan } from './planModel';
+import { plannedCategories, rankSuggestions, warningsFor } from './suggest';
 
 const TARGET: string = '2026-W30';
 
@@ -245,6 +246,101 @@ describe('rankSuggestions', () => {
   });
 });
 
+describe('rankSuggestions with slot filter (feature 002 step 5)', () => {
+  it('excludes a recipe whose suitableFor lacks the given slot (AC6)', () => {
+    const r = recipe({ id: 'r1', name: 'Ovesna kase', suitableFor: ['breakfast'] });
+    const result = rankSuggestions({
+      recipes: [r],
+      plans: {},
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('applies no suitability filter when no slot is given', () => {
+    const r = recipe({ id: 'r1', name: 'Ovesna kase', suitableFor: ['breakfast'] });
+    const result = rankSuggestions({ recipes: [r], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(result.map((s) => s.recipe.id)).toEqual(['r1']);
+  });
+
+  it('includes the recipe when the given slot is in its suitableFor', () => {
+    const r = recipe({ id: 'r1', name: 'Ovesna kase', suitableFor: ['breakfast'] });
+    const result = rankSuggestions({
+      recipes: [r],
+      plans: {},
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+      slot: 'breakfast',
+    });
+    expect(result.map((s) => s.recipe.id)).toEqual(['r1']);
+  });
+
+  it('excludes a recipe already assigned to any slot of the target week, not just the given slot', () => {
+    const r = recipe({ id: 'r1', name: 'Zapekanka' });
+    const plans: Plans = { [TARGET]: weekPlanWith([{ day: 'wed', slot: 'lunch', recipeId: 'r1' }]) };
+    const result = rankSuggestions({
+      recipes: [r],
+      plans,
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('a recipe cooked in any slot last week is rotation-hidden this week regardless of the queried slot (AC7 second half)', () => {
+    const r = recipe({ id: 'r1', name: 'Svacinka' });
+    const plans: Plans = { '2026-W29': weekPlanWith([{ day: 'mon', slot: 'snack', recipeId: 'r1' }]) };
+    const result = rankSuggestions({
+      recipes: [r],
+      plans,
+      sales: [],
+      settings: settings({ rotationWeeks: 2 }),
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('a "max 2x maso" rule consumed by oběd + večeře on the same day blocks further maso anywhere (AC7 first half)', () => {
+    const plannedLunch = recipe({ id: 'planned-lunch', name: 'Obedove maso', category: 'maso' });
+    const plannedDinner = recipe({ id: 'planned-dinner', name: 'Vecerni maso', category: 'maso' });
+    const candidate = recipe({ id: 'r1', name: 'Dalsi maso', category: 'maso' });
+    const plans: Plans = {
+      [TARGET]: weekPlanWith([
+        { day: 'mon', slot: 'lunch', recipeId: 'planned-lunch' },
+        { day: 'mon', slot: 'dinner', recipeId: 'planned-dinner' },
+      ]),
+    };
+    const s = settings({ dietRules: [{ category: 'maso', max: 2 }] });
+    const result = rankSuggestions({
+      recipes: [plannedLunch, plannedDinner, candidate],
+      plans,
+      sales: [],
+      settings: s,
+      targetWeek: TARGET,
+    });
+    expect(result).toEqual([]);
+  });
+});
+
+describe('plannedCategories multiplicity (feature 002 step 5)', () => {
+  it('counts both categories of a multi-recipe entry (recipeIds: [a, b])', () => {
+    const a = recipe({ id: 'a', name: 'Maso jidlo', category: 'maso' });
+    const b = recipe({ id: 'b', name: 'Rybi jidlo', category: 'ryba' });
+    const week = emptyWeekPlan(['dinner']);
+    week.days.mon.dinner = [{ id: 'e1', recipeIds: ['a', 'b'], source: 'manual' }];
+    const plans: Plans = { [TARGET]: week };
+    const categories = plannedCategories([a, b], plans, TARGET);
+    expect(categories.slice().sort()).toEqual(['maso', 'ryba']);
+  });
+});
+
 describe('warningsFor', () => {
   it('returns no warnings for a clean recipe', () => {
     const r = recipe({ id: 'r1', name: 'Cisty recept' });
@@ -315,6 +411,72 @@ describe('warningsFor', () => {
       { kind: 'blocked', person: 'Petr', ingredients: ['houby'] },
       { kind: 'maxExceeded', category: 'maso' },
       { kind: 'rotation', weeksSinceCooked: 1 },
+    ]);
+  });
+
+  it('adds an unsuitable warning when the recipe is not suitableFor the given slot', () => {
+    const r = recipe({ id: 'r1', name: 'Ovesna kase', suitableFor: ['breakfast'] });
+    const warnings = warningsFor(r, {
+      recipes: [r],
+      plans: {},
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(warnings).toEqual([{ kind: 'unsuitable', slot: 'dinner' }]);
+  });
+
+  it('does not warn when the recipe is suitableFor the given slot', () => {
+    const r = recipe({ id: 'r1', name: 'Polevka', suitableFor: ['lunch', 'dinner'] });
+    const warnings = warningsFor(r, {
+      recipes: [r],
+      plans: {},
+      sales: [],
+      settings: settings(),
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  it('does not warn about suitability when no slot is given', () => {
+    const r = recipe({ id: 'r1', name: 'Ovesna kase', suitableFor: ['breakfast'] });
+    const warnings = warningsFor(r, { recipes: [r], plans: {}, sales: [], settings: settings(), targetWeek: TARGET });
+    expect(warnings).toEqual([]);
+  });
+
+  it('appends the unsuitable warning after blocked/maxExceeded/rotation (placement pin)', () => {
+    const planned = recipe({ id: 'planned', name: 'Planned maso', category: 'maso' });
+    const r = recipe({
+      id: 'r1',
+      name: 'Houbove maso',
+      category: 'maso',
+      suitableFor: ['breakfast'],
+      ingredients: [{ name: 'houby' }],
+    });
+    const plans: Plans = {
+      [TARGET]: planWith({ mon: 'planned' }),
+      '2026-W29': planWith({ tue: 'r1' }),
+    };
+    const s = settings({
+      persons: [{ name: 'Petr', blocked: ['houby'] }, { name: 'Jana', blocked: [] }],
+      dietRules: [{ category: 'maso', max: 1 }],
+      rotationWeeks: 2,
+    });
+    const warnings = warningsFor(r, {
+      recipes: [planned, r],
+      plans,
+      sales: [],
+      settings: s,
+      targetWeek: TARGET,
+      slot: 'dinner',
+    });
+    expect(warnings).toEqual([
+      { kind: 'blocked', person: 'Petr', ingredients: ['houby'] },
+      { kind: 'maxExceeded', category: 'maso' },
+      { kind: 'rotation', weeksSinceCooked: 1 },
+      { kind: 'unsuitable', slot: 'dinner' },
     ]);
   });
 });

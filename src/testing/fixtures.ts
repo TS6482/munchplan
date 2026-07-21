@@ -4,7 +4,8 @@
  * hand as the type grows; pass `overrides` for whatever the test cares about.
  */
 
-import type { IsoDay, Recipe, WeekPlan } from '../types';
+import type { IsoDay, MealSlotKey, Recipe, WeekPlan } from '../types';
+import { SLOT_ORDER } from '../types';
 import { emptyWeekPlan } from '../engine/planModel';
 
 export function makeRecipe(overrides: Partial<Recipe> = {}): Recipe {
@@ -36,6 +37,27 @@ export function dinnerWeek(days: Partial<Record<IsoDay, string>>): WeekPlan {
   const newDays = { ...base.days };
   for (const [day, recipeId] of Object.entries(days) as [IsoDay, string][]) {
     newDays[day] = { ...newDays[day], dinner: [{ id: `fx-${day}`, recipeIds: [recipeId], source: 'manual' }] };
+  }
+  return { ...base, days: newDays };
+}
+
+/**
+ * Builds a new-shape `WeekPlan` with one entry per given (day, slot,
+ * recipeId) — the multi-slot fixture helper for rules that must consider
+ * every slot, not just dinner (e.g. a "max 2x maso" rule consumed by both
+ * oběd and večeře, or a recipe cooked as a snack counting for rotation).
+ * `activeSlots` is derived as the slots referenced, in `SLOT_ORDER`
+ * (falling back to `['dinner']` for an empty entry list).
+ */
+export function weekPlanWith(
+  entries: { day: IsoDay; slot: MealSlotKey; recipeId: string; source?: 'auto' | 'manual'; id?: string }[],
+): WeekPlan {
+  const usedSlots = SLOT_ORDER.filter((slot) => entries.some((e) => e.slot === slot));
+  const base = emptyWeekPlan(usedSlots.length > 0 ? usedSlots : ['dinner']);
+  const newDays = { ...base.days };
+  for (const e of entries) {
+    const entry = { id: e.id ?? `fx-${e.day}-${e.slot}-${e.recipeId}`, recipeIds: [e.recipeId], source: e.source ?? ('manual' as const) };
+    newDays[e.day] = { ...newDays[e.day], [e.slot]: [...newDays[e.day][e.slot], entry] };
   }
   return { ...base, days: newDays };
 }
