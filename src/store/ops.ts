@@ -48,7 +48,7 @@ import type {
 import { SLOT_ORDER } from '../types';
 import { normalizeName } from '../engine/normalize';
 import { emptyDayPlan, emptyWeekPlan } from '../engine/planModel';
-import { ISO_DAYS } from '../engine/week';
+import { ISO_DAYS, WEEK_KEY_RE } from '../engine/week';
 
 // ---------------------------------------------------------------------------
 // recipes.json
@@ -250,12 +250,15 @@ function normalizeWeek(raw: unknown, week: WeekKey): WeekPlan {
  * string `id`, an array of string `recipeIds`, and `source` `'auto'` or
  * `'manual'`, else it's dropped). A week missing (or invalid) `activeSlots`
  * derives it as the union of slots holding entries, falling back to
- * `['dinner']`. Never throws on garbage; a non-object file yields `{}`.
+ * `['dinner']`. Never throws on garbage; a non-object file yields `{}`; a
+ * top-level key that isn't a valid week key (e.g. a stray `notes` field) is
+ * dropped rather than normalized as a week.
  */
 export function normalizePlans(data: unknown): Plans {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
   const result: Plans = {};
   for (const [week, rawWeek] of Object.entries(data as Record<string, unknown>)) {
+    if (!WEEK_KEY_RE.test(week)) continue;
     result[week] = normalizeWeek(rawWeek, week);
   }
   return result;

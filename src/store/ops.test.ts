@@ -357,6 +357,15 @@ describe('normalizePlans', () => {
     expect(normalizePlans([1, 2])).toEqual({});
     expect(normalizePlans('garbage')).toEqual({});
   });
+
+  it('skips top-level keys that are not valid week keys (MINOR 4)', () => {
+    const raw = {
+      notes: { some: 'unrelated data' },
+      '2026-W30': emptyWeekPlan(['dinner']),
+    };
+    const result = normalizePlans(raw);
+    expect(Object.keys(result)).toEqual(['2026-W30']);
+  });
 });
 
 describe('activateSlot / deactivateSlot', () => {

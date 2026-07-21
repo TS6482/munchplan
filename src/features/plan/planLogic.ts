@@ -22,6 +22,7 @@ import { canBePlanned } from '../recipes/recipeFormLogic';
 import { SLOT_ACCUSATIVE, SLOT_LABELS } from '../../components/slotLabels';
 import { routeHash } from '../../router/router';
 import { entryRows } from './mealDetailLogic';
+import { activateSlot, type PlansOp } from '../../store/ops';
 
 // ---------------------------------------------------------------------------
 // Week toggle
@@ -90,6 +91,22 @@ export function defaultActiveSlots(plans: Plans, week: WeekKey): MealSlotKey[] {
   return nearestKey ? plans[nearestKey].activeSlots : ['dinner'];
 }
 
+/**
+ * The `activateSlot` ops that persist a not-yet-stored week's inherited
+ * defaults (decision 6) — `[]` once `week` is stored, since its `activeSlots`
+ * is then the source of truth and needs no seeding. Every first-interaction
+ * path (toggling a chip, adding a meal from the detail page, running
+ * auto-fill) must issue these before its own op, so the displayed defaults
+ * become the persisted `activeSlots` instead of silently reverting on
+ * reload.
+ */
+export function seedOpsForUnstoredWeek(plans: Plans, week: WeekKey): Extract<PlansOp, { type: 'activateSlot' }>[] {
+  if (plans[week]) return [];
+  return defaultActiveSlots(plans, week).map(
+    (slot) => activateSlot(week, slot) as Extract<PlansOp, { type: 'activateSlot' }>,
+  );
+}
+
 export interface ToggleSlotResult {
   op: 'activate' | 'deactivate';
   needsConfirm: boolean;
@@ -100,14 +117,20 @@ export interface ToggleSlotResult {
 const DEACTIVATE_CONFIRM_TEXT = 'Slot obsahuje jídla — odebrat je?';
 
 /**
- * What toggling `slot` should do for `weekPlan`: activating never confirms;
- * deactivating an empty slot doesn't either; deactivating a slot holding
- * entries (summed across all 7 days) needs confirmation with Czech copy —
- * the caller shows it (`window.confirm`) and only then issues
- * `deactivateSlot`.
+ * What toggling `slot` should do, judged from `displayedSlots` (the chips the
+ * user actually sees — a not-yet-stored week's inherited defaults, or the
+ * stored week's `activeSlots`), not from `weekPlan` alone: activating never
+ * confirms; deactivating an empty slot doesn't either; deactivating a slot
+ * holding entries (summed across all 7 days of a *stored* week; an unstored
+ * week has none) needs confirmation with Czech copy — the caller shows it
+ * (`window.confirm`) and only then issues `deactivateSlot`.
  */
-export function toggleSlotResult(weekPlan: WeekPlan | undefined, slot: MealSlotKey): ToggleSlotResult {
-  const isActive = weekPlan?.activeSlots.includes(slot) ?? false;
+export function toggleSlotResult(
+  weekPlan: WeekPlan | undefined,
+  displayedSlots: MealSlotKey[],
+  slot: MealSlotKey,
+): ToggleSlotResult {
+  const isActive = displayedSlots.includes(slot);
   if (!isActive) {
     return { op: 'activate', needsConfirm: false, entryCount: 0 };
   }

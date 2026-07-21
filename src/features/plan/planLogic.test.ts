@@ -4,6 +4,7 @@ import type { IsoDay, MealSlotKey, Plans, Recipe, Settings, WeekPlan } from '../
 import { dinnerWeek, makeRecipe, weekPlanWith } from '../../testing/fixtures';
 import { emptyWeekPlan } from '../../engine/planModel';
 import type { Suggestion, Warning } from '../../engine/suggest';
+import { applyPlansOp, normalizePlans, replaceAutoEntries } from '../../store/ops';
 import {
   czechWarnings,
   dayCards,
@@ -14,6 +15,7 @@ import {
   quotaSummaryLine,
   runAutoFill,
   runWeekReroll,
+  seedOpsForUnstoredWeek,
   suggestionView,
   toggleSlotResult,
   weekChoices,
@@ -114,6 +116,12 @@ describe('defaultActiveSlots', () => {
   it('falls back to ["dinner"] when no earlier week is stored', () => {
     expect(defaultActiveSlots({}, TARGET)).toEqual(['dinner']);
   });
+
+  it('does not throw over normalizePlans output for a garbage key alongside a valid old-shape week (MINOR 4)', () => {
+    const plans = normalizePlans({ garbage: { some: 'nonsense' }, '2026-W29': emptyWeekPlan(['snack']) });
+    expect(() => defaultActiveSlots(plans, TARGET)).not.toThrow();
+    expect(defaultActiveSlots(plans, TARGET)).toEqual(['snack']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -121,8 +129,16 @@ describe('defaultActiveSlots', () => {
 // ---------------------------------------------------------------------------
 
 describe('toggleSlotResult', () => {
-  it('activates an inactive slot on an undefined week, never confirming', () => {
-    expect(toggleSlotResult(undefined, 'breakfast')).toEqual({
+  it('deactivates a displayed slot on an unstored week (inherited defaults), never confirming (no stored entries)', () => {
+    expect(toggleSlotResult(undefined, ['lunch', 'dinner'], 'dinner')).toEqual({
+      op: 'deactivate',
+      needsConfirm: false,
+      entryCount: 0,
+    });
+  });
+
+  it('activates a slot not among the displayed defaults on an unstored week', () => {
+    expect(toggleSlotResult(undefined, ['lunch', 'dinner'], 'breakfast')).toEqual({
       op: 'activate',
       needsConfirm: false,
       entryCount: 0,
@@ -131,7 +147,7 @@ describe('toggleSlotResult', () => {
 
   it('activates an inactive slot on a stored week, never confirming', () => {
     const plan = emptyWeekPlan(['dinner']);
-    expect(toggleSlotResult(plan, 'breakfast')).toEqual({
+    expect(toggleSlotResult(plan, plan.activeSlots, 'breakfast')).toEqual({
       op: 'activate',
       needsConfirm: false,
       entryCount: 0,
@@ -140,7 +156,7 @@ describe('toggleSlotResult', () => {
 
   it('deactivates an empty active slot without confirmation', () => {
     const plan = emptyWeekPlan(['dinner']);
-    expect(toggleSlotResult(plan, 'dinner')).toEqual({
+    expect(toggleSlotResult(plan, plan.activeSlots, 'dinner')).toEqual({
       op: 'deactivate',
       needsConfirm: false,
       entryCount: 0,
@@ -152,7 +168,7 @@ describe('toggleSlotResult', () => {
       { day: 'mon', slot: 'dinner', recipeId: 'r1' },
       { day: 'wed', slot: 'dinner', recipeId: 'r2' },
     ]);
-    expect(toggleSlotResult(plan, 'dinner')).toEqual({
+    expect(toggleSlotResult(plan, plan.activeSlots, 'dinner')).toEqual({
       op: 'deactivate',
       needsConfirm: true,
       entryCount: 2,
@@ -162,11 +178,34 @@ describe('toggleSlotResult', () => {
 
   it('allows deactivating the last remaining active slot (an all-unticked week is valid)', () => {
     const plan = emptyWeekPlan(['snack']);
-    expect(toggleSlotResult(plan, 'snack')).toEqual({
+    expect(toggleSlotResult(plan, plan.activeSlots, 'snack')).toEqual({
       op: 'deactivate',
       needsConfirm: false,
       entryCount: 0,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// seedOpsForUnstoredWeek
+// ---------------------------------------------------------------------------
+
+describe('seedOpsForUnstoredWeek', () => {
+  it('returns [] when the week is already stored', () => {
+    const plans: Plans = { [TARGET]: emptyWeekPlan(['lunch']) };
+    expect(seedOpsForUnstoredWeek(plans, TARGET)).toEqual([]);
+  });
+
+  it('returns activateSlot ops for the inherited defaults when the week is unstored', () => {
+    const plans: Plans = { '2026-W28': emptyWeekPlan(['lunch', 'dinner']) };
+    expect(seedOpsForUnstoredWeek(plans, TARGET)).toEqual([
+      { type: 'activateSlot', week: TARGET, slot: 'lunch' },
+      { type: 'activateSlot', week: TARGET, slot: 'dinner' },
+    ]);
+  });
+
+  it('returns one activateSlot op for the first-ever-week ["dinner"] default', () => {
+    expect(seedOpsForUnstoredWeek({}, TARGET)).toEqual([{ type: 'activateSlot', week: TARGET, slot: 'dinner' }]);
   });
 });
 
@@ -394,6 +433,40 @@ describe('runAutoFill', () => {
     expect(result.op!.week).toBe(TARGET);
     expect(result.op!.placements).toHaveLength(7);
     expect(result.hints).toEqual([]);
+  });
+});
+
+// MAJOR 2: applying runAutoFill's op alone on an unstored week would derive
+// activeSlots from the placements only, silently dropping a displayed
+// default slot that happened to get zero placements. Seeding first (decision
+// 6) must keep it.
+describe('runAutoFill composition: seeding an unstored week before applying the op', () => {
+  it('keeps a displayed default slot with zero placements once the seed ops are applied before the auto-fill op', () => {
+    const dinnerOnlyRecipes = ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'].map((id) => autoFillRecipe(id, id));
+    const plans: Plans = { '2026-W29': emptyWeekPlan(['breakfast', 'dinner']) };
+    const activeSlots: MealSlotKey[] = ['breakfast', 'dinner']; // inherited from '2026-W29'
+    let counter = 0;
+
+    const seedOps = seedOpsForUnstoredWeek(plans, TARGET);
+    expect(seedOps).toEqual([
+      { type: 'activateSlot', week: TARGET, slot: 'breakfast' },
+      { type: 'activateSlot', week: TARGET, slot: 'dinner' },
+    ]);
+
+    const result = runAutoFill(
+      { recipes: dinnerOnlyRecipes, plans, sales: [], settings: settings(), week: TARGET, activeSlots },
+      () => 0,
+      () => `auto-${counter++}`,
+    );
+    expect(result.op).not.toBeNull();
+    expect(result.hints).toHaveLength(7); // no breakfast-suitable recipe -> every day hints
+    expect(result.hints.every((t) => t.slot === 'breakfast')).toBe(true);
+
+    let seededPlans = plans;
+    for (const op of seedOps) seededPlans = applyPlansOp(op, seededPlans);
+    const finalPlans = applyPlansOp(replaceAutoEntries(result.op!.week, result.op!.placements), seededPlans);
+
+    expect(finalPlans[TARGET].activeSlots).toEqual(['breakfast', 'dinner']);
   });
 });
 

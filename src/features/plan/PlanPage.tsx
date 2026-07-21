@@ -11,6 +11,7 @@ import {
   quotaSummaryLine,
   runAutoFill,
   runWeekReroll,
+  seedOpsForUnstoredWeek,
   toggleSlotResult,
   weekChoices,
 } from './planLogic';
@@ -38,6 +39,9 @@ function PlanPage({ week }: PlanPageProps) {
   const replaceAutoEntries = useDataStore((s) => s.replaceAutoEntries);
 
   const choices = useMemo(() => weekChoices(new Date()), []);
+  // Mount-only seed: in-app flows (route push, back-navigation) always remount
+  // this component, so `week` is re-read fresh each time. A manual hash edit
+  // while already mounted won't retrigger this useState — out of scope.
   const [weekKey, setWeekKey] = useState(week ?? choices[1].key); // default: příští týden
 
   const [hints, setHints] = useState<Hints>(new Set());
@@ -56,25 +60,39 @@ function PlanPage({ week }: PlanPageProps) {
   }
 
   async function handleToggleSlot(slot: MealSlotKey) {
-    const result = toggleSlotResult(weekPlan, slot);
+    const result = toggleSlotResult(weekPlan, activeSlots, slot);
     if (result.op === 'deactivate') {
       if (result.needsConfirm && !window.confirm(result.confirmText)) return;
+
+      if (!weekPlan) {
+        // Unstored week: deactivateSlot is a no-op with nothing stored to
+        // remove the slot from — persisting the displayed defaults minus the
+        // tapped slot *is* the deactivation (decision 6 / MAJOR 3).
+        const ops = seedOpsForUnstoredWeek(plans, weekKey).filter((op) => op.slot !== slot);
+        for (const op of ops) await activateSlot(op.week, op.slot);
+        return;
+      }
       await deactivateSlot(weekKey, slot);
       return;
     }
 
-    // First touch on a not-yet-stored week: persist the inherited defaults
-    // before/with the toggled slot (decision 6), so future auto-fills and
+    // Activate: first touch on a not-yet-stored week persists the inherited
+    // defaults before the toggled slot (decision 6), so future auto-fills and
     // reloads see the same activeSlots the chips already showed.
-    if (!weekPlan) {
-      for (const defaultSlot of defaultActiveSlots(plans, weekKey)) {
-        await activateSlot(weekKey, defaultSlot);
-      }
+    for (const op of seedOpsForUnstoredWeek(plans, weekKey)) {
+      await activateSlot(op.week, op.slot);
     }
     await activateSlot(weekKey, slot);
   }
 
   async function handleAutoFill() {
+    // Seed an unstored week's inherited defaults before the auto-fill op
+    // (decision 6 / MAJOR 2), so a slot with zero placements this pass still
+    // ends up in the persisted activeSlots instead of being dropped.
+    for (const op of seedOpsForUnstoredWeek(plans, weekKey)) {
+      await activateSlot(op.week, op.slot);
+    }
+
     const result = runAutoFill(
       { recipes, plans, sales, settings, week: weekKey, activeSlots },
       Math.random,

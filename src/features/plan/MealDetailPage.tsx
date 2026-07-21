@@ -3,7 +3,7 @@ import { useDataStore } from '../../store/data';
 import type { IsoDay, MealSlotKey, WeekKey } from '../../types';
 import type { RankSuggestionsInput } from '../../engine/suggest';
 import { routeHash } from '../../router/router';
-import { getSuggestions, suggestionView } from './planLogic';
+import { getSuggestions, seedOpsForUnstoredWeek, suggestionView } from './planLogic';
 import { entryRows, mealHeader, newManualEntry, rerollSlot } from './mealDetailLogic';
 import RecipePicker from './RecipePicker';
 import styles from './MealDetailPage.module.css';
@@ -39,11 +39,18 @@ function MealDetailPage({ week, day, slot }: MealDetailPageProps) {
   const suggestionsInput: RankSuggestionsInput = { recipes, plans, sales, settings, targetWeek: week };
   const suggestions = getSuggestions({ ...suggestionsInput, slot }).slice(0, SUGGESTION_LIMIT);
 
-  function handleAdd(recipeId: string) {
-    if (!(weekPlan?.activeSlots.includes(slot) ?? false)) {
-      void activateSlot(week, slot);
+  async function handleAdd(recipeId: string) {
+    // Unstored week: seed the inherited defaults before activating the
+    // tapped slot (decision 6 / MAJOR 1) — seeding first means a tapped slot
+    // outside those defaults joins them instead of replacing them.
+    const seedOps = seedOpsForUnstoredWeek(plans, week);
+    for (const op of seedOps) {
+      await activateSlot(op.week, op.slot);
     }
-    void addMealEntry(week, day, slot, newManualEntry(recipeId, () => crypto.randomUUID()));
+    if (!seedOps.some((op) => op.slot === slot) && !(weekPlan?.activeSlots.includes(slot) ?? false)) {
+      await activateSlot(week, slot);
+    }
+    await addMealEntry(week, day, slot, newManualEntry(recipeId, () => crypto.randomUUID()));
   }
 
   function handleReroll() {
@@ -127,11 +134,15 @@ function MealDetailPage({ week, day, slot }: MealDetailPageProps) {
               const view = suggestionView(s);
               return (
                 <li key={view.id} className={styles.suggestionRow}>
-                  <span className={styles.name}>
-                    {view.name}
-                    {view.untriedBadge && <span className={styles.badge}>nevyzkoušené</span>}
-                  </span>
-                  <button type="button" className="btn btnSecondary" onClick={() => handleAdd(view.id)}>
+                  <div className={styles.suggestionInfo}>
+                    <span className={styles.name}>
+                      {view.name}
+                      {view.untriedBadge && <span className={styles.badge}>nevyzkoušené</span>}
+                    </span>
+                    {view.saleText && <span className={styles.sale}>{view.saleText}</span>}
+                    <span className={styles.fresh}>{view.freshText}</span>
+                  </div>
+                  <button type="button" className="btn btnSecondary" onClick={() => void handleAdd(view.id)}>
                     Přidat
                   </button>
                 </li>
@@ -150,7 +161,7 @@ function MealDetailPage({ week, day, slot }: MealDetailPageProps) {
           input={suggestionsInput}
           slot={slot}
           onSelect={(recipeId) => {
-            handleAdd(recipeId);
+            void handleAdd(recipeId);
             setPickerOpen(false);
           }}
           onCancel={() => setPickerOpen(false)}
