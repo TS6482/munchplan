@@ -30,6 +30,13 @@ describe('menuItemsFor', () => {
     ]);
   });
 
+  it('mealDetail route: Nový recept then Nastavení (step 8, decision 9)', () => {
+    expect(menuItemsFor({ name: 'mealDetail', week: '2026-W30', day: 'wed', slot: 'dinner' })).toEqual([
+      { label: 'Nový recept', route: { name: 'recipeNew' } },
+      { label: 'Nastavení', route: { name: 'settings' } },
+    ]);
+  });
+
   it('settings route: only Nastavení', () => {
     expect(menuItemsFor({ name: 'settings' })).toEqual([{ label: 'Nastavení', route: { name: 'settings' } }]);
   });

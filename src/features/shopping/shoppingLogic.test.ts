@@ -3,7 +3,7 @@ import type { GithubConfig } from '../../api/github';
 import { itemKey } from '../../engine/match';
 import type { ShoppingItem } from '../../engine/shoppingList';
 import type { Extras, IsoDay, Plans, Recipe, WeekPlan } from '../../types';
-import { dinnerWeek, makeRecipe } from '../../testing/fixtures';
+import { dinnerWeek, makeRecipe, weekPlanWith } from '../../testing/fixtures';
 import { itemAmountText, newExtraItem, shoppingView, toggleHomeTarget, validateExtraName, weekExtrasFor } from './shoppingLogic';
 
 function planWith(days: Partial<Record<IsoDay, string | null>>): WeekPlan {
@@ -97,6 +97,19 @@ describe('shoppingView', () => {
     expect(before.buy.find((i) => i.key === 'mouka|g')?.checked).toBe(true);
     expect(after.buy.find((i) => i.key === 'mouka|g')?.checked).toBe(true);
     expect(after.buy.some((i) => i.key === 'cukr|g')).toBe(true);
+  });
+
+  it('aggregates ingredients from multiple slots of the same week (step 7, AC8)', () => {
+    const a = recipe({ id: 'a', name: 'Recept A', ingredients: [{ name: 'mouka', amount: 200, unit: 'g' }] });
+    const b = recipe({ id: 'b', name: 'Recept B', ingredients: [{ name: 'cukr', amount: 100, unit: 'g' }] });
+    const plans: Plans = {
+      '2026-W30': weekPlanWith([
+        { day: 'mon', slot: 'lunch', recipeId: 'a' },
+        { day: 'mon', slot: 'dinner', recipeId: 'b' },
+      ]),
+    };
+    const view = shoppingView({ recipes: [a, b], plans, pantry: [], sales: [], extras: { weeks: {} }, week: '2026-W30' });
+    expect(view.buy.map((i) => i.key).sort()).toEqual(['cukr|g', 'mouka|g']);
   });
 });
 

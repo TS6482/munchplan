@@ -3,6 +3,7 @@ import styles from './App.module.css';
 import { routeHash, type Route } from './router/router';
 import { useRoute } from './router/useRoute';
 import PlanPage from './features/plan/PlanPage';
+import MealDetailPage from './features/plan/MealDetailPage';
 import RecipeListPage from './features/recipes/RecipeListPage';
 import RecipeDetailPage from './features/recipes/RecipeDetailPage';
 import ShoppingPage from './features/shopping/ShoppingPage';
@@ -22,7 +23,7 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { route: { name: 'plan' }, label: 'Plán', icon: '📅', isActive: (r) => r.name === 'plan' },
+  { route: { name: 'plan' }, label: 'Plán', icon: '📅', isActive: (r) => r.name === 'plan' || r.name === 'mealDetail' },
   {
     route: { name: 'recipes' },
     label: 'Recepty',
@@ -37,6 +38,8 @@ function renderPage(route: Route) {
   switch (route.name) {
     case 'plan':
       return <PlanPage />;
+    case 'mealDetail':
+      return <MealDetailPage week={route.week} day={route.day} slot={route.slot} />;
     case 'recipes':
       return <RecipeListPage />;
     case 'recipeNew':
