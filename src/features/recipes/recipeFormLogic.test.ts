@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Recipe } from '../../types';
+import type { MealSlotKey, Recipe } from '../../types';
 import { makeRecipe } from '../../testing/fixtures';
 import {
   canBePlanned,
@@ -8,6 +8,7 @@ import {
   parseAmount,
   promoteRecipe,
   sourceHref,
+  toggleSlotSelection,
   toRecipe,
   validateFullForm,
   validateQuickAdd,
@@ -23,6 +24,7 @@ function emptyForm(overrides: Partial<FormValues> = {}): FormValues {
     notes: '',
     portionsStr: '2',
     ingredients: [],
+    suitableFor: ['lunch', 'dinner'],
     ...overrides,
   };
 }
@@ -139,8 +141,21 @@ describe('validateFullForm', () => {
         ],
         portions: 2,
         untried: false,
+        suitableFor: ['lunch', 'dinner'],
       });
     }
+  });
+
+  it('rejects an empty slot selection', () => {
+    const result = validateFullForm(
+      emptyForm({
+        name: 'Guláš',
+        ingredients: [{ name: 'maso', amountStr: '500', unit: 'g' }],
+        suitableFor: [],
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.suitableFor).toBe('Vyberte alespoň jeden typ jídla');
   });
 
   it('omits empty source/notes', () => {
@@ -181,6 +196,12 @@ describe('validateQuickAdd', () => {
       expect(result.recipe.source).toBe('https://instagram.com/x');
     }
   });
+
+  it('defaults suitableFor to oběd + večeře', () => {
+    const result = validateQuickAdd('Rychlé rizoto', '');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.recipe.suitableFor).toEqual(['lunch', 'dinner']);
+  });
 });
 
 describe('toRecipe', () => {
@@ -192,6 +213,7 @@ describe('toRecipe', () => {
     notes: undefined,
     ingredients: [{ name: 'maso' }],
     untried: false,
+    suitableFor: ['lunch', 'dinner'] as MealSlotKey[],
   };
 
   it('creates a new recipe with a generated id and createdAt=updatedAt=now', () => {
@@ -200,6 +222,13 @@ describe('toRecipe', () => {
     expect(recipe.createdAt).toBe('2026-07-19T10:00:00.000Z');
     expect(recipe.updatedAt).toBe('2026-07-19T10:00:00.000Z');
     expect(recipe.untried).toBe(false);
+  });
+
+  it('creates with componentType full and empty pairings, suitableFor from draft', () => {
+    const recipe = toRecipe(draft, undefined, '2026-07-19T10:00:00.000Z', () => 'fixed-id');
+    expect(recipe.componentType).toBe('full');
+    expect(recipe.pairings).toEqual({ sides: [], salads: [] });
+    expect(recipe.suitableFor).toEqual(['lunch', 'dinner']);
   });
 
   it('quick-add draft creates an untried recipe', () => {
@@ -224,6 +253,19 @@ describe('toRecipe', () => {
     expect(recipe.untried).toBe(true);
     expect(recipe.updatedAt).toBe('2026-07-19T10:00:00.000Z');
     expect(recipe.name).toBe('Guláš');
+  });
+
+  it('edit updates suitableFor from the form but preserves existing componentType/pairings', () => {
+    const existing: Recipe = makeRecipe({
+      id: 'existing-id',
+      componentType: 'main',
+      pairings: { sides: ['side-1'], salads: [] },
+      suitableFor: ['breakfast'],
+    });
+    const recipe = toRecipe({ ...draft, suitableFor: ['breakfast', 'snack'] }, existing, '2026-07-19T10:00:00.000Z');
+    expect(recipe.suitableFor).toEqual(['breakfast', 'snack']);
+    expect(recipe.componentType).toBe('main');
+    expect(recipe.pairings).toEqual({ sides: ['side-1'], salads: [] });
   });
 });
 
@@ -321,6 +363,7 @@ describe('fromRecipe', () => {
         { name: 'maso', amountStr: '0,5', unit: 'kg' },
         { name: 'sůl', amountStr: '', unit: '' },
       ],
+      suitableFor: ['lunch', 'dinner'],
     });
   });
 
@@ -343,7 +386,28 @@ describe('fromRecipe', () => {
       notes: '',
       portionsStr: '2',
       ingredients: [],
+      suitableFor: ['lunch', 'dinner'],
     });
+  });
+
+  it('round-trips a non-default suitableFor', () => {
+    const recipe: Recipe = makeRecipe({ suitableFor: ['breakfast', 'snack'] });
+    expect(fromRecipe(recipe).suitableFor).toEqual(['breakfast', 'snack']);
+  });
+});
+
+describe('toggleSlotSelection', () => {
+  it('adds a slot not yet selected, ordered by SLOT_ORDER', () => {
+    expect(toggleSlotSelection(['lunch'], 'breakfast')).toEqual(['breakfast', 'lunch']);
+    expect(toggleSlotSelection(['breakfast'], 'snack')).toEqual(['breakfast', 'snack']);
+  });
+
+  it('removes a slot already selected', () => {
+    expect(toggleSlotSelection(['lunch', 'dinner'], 'lunch')).toEqual(['dinner']);
+  });
+
+  it('may produce an empty selection (validation catches it at submit)', () => {
+    expect(toggleSlotSelection(['lunch'], 'lunch')).toEqual([]);
   });
 });
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useDataStore } from '../../store/data';
 import { navigate } from '../../router/router';
 import type { Ingredient, Recipe } from '../../types';
+import { SLOT_LABELS } from '../../components/slotLabels';
 import { EFFORT_LABELS, canBePlanned, formatAmount, formatPortions, promoteRecipe, sourceHref } from './recipeFormLogic';
 import RecipeForm from './RecipeForm';
 import styles from './RecipeDetailPage.module.css';
@@ -60,6 +61,11 @@ function RecipeDetailPage({ id }: { id: string }) {
         <span className={styles.chip}>{recipe.category}</span>
         <span className={styles.chip}>{EFFORT_LABELS[recipe.effort]}</span>
         {recipe.portions !== undefined && <span className={styles.chip}>{formatPortions(recipe.portions)}</span>}
+        {recipe.suitableFor.map((slot) => (
+          <span key={slot} className={styles.chip}>
+            {SLOT_LABELS[slot]}
+          </span>
+        ))}
       </div>
 
       {!canBePlanned(recipe) && (

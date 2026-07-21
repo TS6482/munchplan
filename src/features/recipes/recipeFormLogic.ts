@@ -4,7 +4,8 @@
  * testable under Vitest's node environment.
  */
 
-import type { Effort, Ingredient, Recipe, RecipeCategory } from '../../types';
+import type { Effort, Ingredient, MealSlotKey, Recipe, RecipeCategory } from '../../types';
+import { SLOT_ORDER } from '../../types';
 
 // ---------------------------------------------------------------------------
 // Form shape
@@ -24,6 +25,7 @@ export interface FormValues {
   notes: string;
   portionsStr: string;
   ingredients: IngredientFormRow[];
+  suitableFor: MealSlotKey[];
 }
 
 /** A validated recipe payload, still missing the persistence fields id/createdAt/updatedAt. */
@@ -42,6 +44,7 @@ export interface RecipeDraft {
   portions?: number;
   ingredients: Ingredient[];
   untried: boolean;
+  suitableFor: MealSlotKey[];
 }
 
 export interface FullFormErrors {
@@ -49,6 +52,7 @@ export interface FullFormErrors {
   portions?: string;
   ingredients?: string;
   ingredientErrors?: Record<number, string>;
+  suitableFor?: string;
 }
 
 export type FullFormResult = { ok: true; recipe: RecipeDraft } | { ok: false; errors: FullFormErrors };
@@ -140,6 +144,8 @@ export function validateFullForm(values: FormValues): FullFormResult {
   if (ingredients.length === 0) errors.ingredients = 'Přidejte alespoň jednu ingredienci';
   if (Object.keys(ingredientErrors).length > 0) errors.ingredientErrors = ingredientErrors;
 
+  if (values.suitableFor.length === 0) errors.suitableFor = 'Vyberte alespoň jeden typ jídla';
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   return {
@@ -153,6 +159,7 @@ export function validateFullForm(values: FormValues): FullFormResult {
       portions: typeof portions === 'number' ? portions : undefined,
       ingredients,
       untried: false,
+      suitableFor: values.suitableFor,
     },
   };
 }
@@ -171,6 +178,7 @@ export function validateQuickAdd(name: string, source: string): FullFormResult {
       notes: undefined,
       ingredients: [],
       untried: true,
+      suitableFor: ['lunch', 'dinner'],
     },
   };
 }
@@ -202,6 +210,7 @@ export function toRecipe(
       portions: draft.portions,
       ingredients: draft.ingredients,
       updatedAt: now,
+      suitableFor: draft.suitableFor,
     };
   }
   return {
@@ -216,7 +225,7 @@ export function toRecipe(
     untried: draft.untried,
     createdAt: now,
     updatedAt: now,
-    suitableFor: ['lunch', 'dinner'],
+    suitableFor: draft.suitableFor,
     componentType: 'full',
     pairings: { sides: [], salads: [] },
   };
@@ -236,7 +245,14 @@ export function fromRecipe(recipe: Recipe): FormValues {
       amountStr: ing.amount !== undefined ? formatAmount(ing.amount) : '',
       unit: ing.unit ?? '',
     })),
+    suitableFor: recipe.suitableFor,
   };
+}
+
+/** Toggles `slot`'s membership in `current`, keeping the result ordered by `SLOT_ORDER`. */
+export function toggleSlotSelection(current: MealSlotKey[], slot: MealSlotKey): MealSlotKey[] {
+  const next = current.includes(slot) ? current.filter((s) => s !== slot) : [...current, slot];
+  return SLOT_ORDER.filter((s) => next.includes(s));
 }
 
 // ---------------------------------------------------------------------------

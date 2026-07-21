@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { useDataStore } from '../../store/data';
 import { navigate } from '../../router/router';
-import type { Effort, Recipe } from '../../types';
+import { SLOT_ORDER, type Effort, type Recipe } from '../../types';
+import { SLOT_LABELS } from '../../components/slotLabels';
 import {
   fromRecipe,
   PORTION_OPTIONS,
+  toggleSlotSelection,
   toRecipe,
   unitOptions,
   validateFullForm,
@@ -28,7 +30,16 @@ function emptyRow(): IngredientFormRow {
 }
 
 function emptyForm(): FormValues {
-  return { name: '', category: 'jiné', effort: 'normal', source: '', notes: '', portionsStr: '2', ingredients: [emptyRow()] };
+  return {
+    name: '',
+    category: 'jiné',
+    effort: 'normal',
+    source: '',
+    notes: '',
+    portionsStr: '2',
+    ingredients: [emptyRow()],
+    suitableFor: ['lunch', 'dinner'],
+  };
 }
 
 interface RecipeFormProps {
@@ -139,6 +150,23 @@ function RecipeForm({ existing, onCancel, untried = false }: RecipeFormProps) {
         </label>
       </div>
       {errors.portions && <p className={styles.error}>{errors.portions}</p>}
+
+      <div className={styles.field}>
+        Vhodné pro
+        <div className="segmented">
+          {SLOT_ORDER.map((slot) => (
+            <button
+              key={slot}
+              type="button"
+              className={values.suitableFor.includes(slot) ? 'segment segmentActive' : 'segment'}
+              onClick={() => setValues((v) => ({ ...v, suitableFor: toggleSlotSelection(v.suitableFor, slot) }))}
+            >
+              {SLOT_LABELS[slot]}
+            </button>
+          ))}
+        </div>
+      </div>
+      {errors.suitableFor && <p className={styles.error}>{errors.suitableFor}</p>}
 
       <label className={styles.field}>
         Zdroj
